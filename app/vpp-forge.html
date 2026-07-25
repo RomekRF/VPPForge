@@ -2829,10 +2829,46 @@ function showShortcuts(){
     $("btnMore")
   );
 }
+function showWelcome(justInstalled){
+  let ov=$("welcome");
+  if(!ov){
+    ov=document.createElement("div");
+    ov.id="welcome";
+    ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
+    ov.addEventListener("mousedown",ev=>{if(ev.target===ov)ov.remove();});
+    document.body.appendChild(ov);
+  }
+  const ver=(BRIDGE&&BRIDGE.ver)?BRIDGE.ver:"";
+  ov.innerHTML=
+    '<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);max-width:560px;width:calc(100% - 48px);max-height:calc(100% - 48px);overflow:auto;padding:22px 26px">'
+    +'<h2 style="font-size:16px;margin-bottom:4px">'+(justInstalled?"VPP Forge is now installed":"Welcome to VPP Forge")+(ver?' <span style="color:var(--text-3);font-weight:400;font-size:12px">v'+ver+"</span>":"")+"</h2>"
+    +'<p style="color:var(--text-2);margin-bottom:14px">Red Faction VPP archive workbench · installed for your user account, no admin needed.</p>'
+    +'<h3 style="font-size:13px;margin-bottom:4px">Using it</h3>'
+    +'<ul style="margin:0 0 12px 18px;color:var(--text-2)">'
+    +'<li>Double-click any <b>.vpp</b> file, or use File › Open VPP (Ctrl O). Recent files live in the File menu.</li>'
+    +'<li>Click a file to preview it. F2 renames, Del removes, Alt ↑/↓ reorders, Ctrl S saves the archive.</li>'
+    +'<li>Extract one file or everything as ZIP from the Action menu.</li>'
+    +'</ul>'
+    +'<h3 style="font-size:13px;margin-bottom:4px">Coming from VPPBUILDER32 / VPVIEW32</h3>'
+    +'<ul style="margin:0 0 12px 18px;color:var(--text-2)">'
+    +'<li>VPP Forge replaces both tools: browsing, previews and byte-exact building in one window.</li>'
+    +'<li>Double-clicking .vpp files now opens VPP Forge. If Windows still opens the old tool, right-click a .vpp once › Open with › VPP Forge › tick Always.</li>'
+    +'<li>Your old tools and archives are not touched — keep or delete them whenever you like.</li>'
+    +'</ul>'
+    +'<h3 style="font-size:13px;margin-bottom:4px">Uninstalling</h3>'
+    +'<ul style="margin:0 0 16px 18px;color:var(--text-2)">'
+    +'<li>Windows Settings › Apps › Installed apps › <b>VPP Forge</b> › Uninstall.</li>'
+    +'<li>Removes the app, the .vpp association, the Start Menu entry and saved settings.</li>'
+    +'</ul>'
+    +'<div style="text-align:right"><button class="btn outline" id="welcomeClose">Get started</button></div>'
+    +'</div>';
+  $("welcomeClose").addEventListener("click",()=>ov.remove());
+  ov.style.display="flex";
+}
 function showAbout(){
   openPop(
     '<h3>About VPP Forge</h3><ul>'
-    +'<li><b>VPP Forge 1.0</b> · Red Faction VPP workbench</li>'
+    +'<li><b>VPP Forge '+((BRIDGE&&BRIDGE.ver)?BRIDGE.ver:"1.0")+'</b> · Red Faction VPP workbench</li>'
     +'<li>Byte-exact VPP v1 writer, verified against retail files. Viewers for TGA, DDS, PCX, VBM, V3M/V3C meshes, VF fonts, RFA animations, levels, tables, and audio.</li>'
     +'<li>Successor to Descent Manager VPPBUILDER32 + VPVIEW32 · original code by Heiko Herrmann, Descent Network.</li>'
     +'<li>V3M engine mirrors Redux V3mParser + RF Static Mesh Tools. Format specs: rafalh/rf-reversed.</li>'
@@ -2900,6 +2936,9 @@ function menuItems(which){
     ]);
   }
   return Promise.resolve([
+    {label:"Getting started",fn:()=>showWelcome(false)},
+    {label:"Keyboard shortcuts",k:"?",fn:showShortcuts},
+    "-",
     {label:"About VPP Forge",fn:showAbout},
     {label:"VPP Forge on GitHub",fn:()=>window.open(REPO_URL,"_blank")},
   ]);
@@ -3232,6 +3271,7 @@ syncNoDoc();
 })();
 if(BRIDGE){
   bridgeJson("/open").then(j=>{if(j&&j.id!=null)bridgeLoad(j.id,j.name);}).catch(()=>{});
+  if(BRIDGE.installed)showWelcome(true);
 }
 </script>
 </body>

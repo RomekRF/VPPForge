@@ -53,7 +53,7 @@ typedef int sock_t;
 #define MAX_PATHS 64
 #define HDR_MAX 16384
 #define BRIDGE_MARK "<!--VPP_BRIDGE-->"
-#define VPP_VERSION "1.1.0"
+#define VPP_VERSION "1.2.0"
 #define WIDEN2(x) L ## x
 #define WIDEN(x) WIDEN2(x)
 #define SETTINGS_MAX 32768
@@ -69,6 +69,7 @@ static size_t g_page_len = 0;
 static volatile int g_quit = 0;
 static char g_recent_path[4096] = "";
 static char g_settings_path[4096] = "";
+static int g_just_installed = 0; /* this launch performed an install/update */
 #ifdef _WIN32
 static HANDLE g_browser_proc = NULL;
 #endif
@@ -394,7 +395,8 @@ static int do_install(void) {
     return 1;
 }
 static void do_uninstall(void) {
-    wchar_t dir[MAX_PATH * 2], progs[MAX_PATH], lnk[MAX_PATH * 2], cmd[MAX_PATH * 5];
+    wchar_t dir[MAX_PATH * 2], progs[MAX_PATH], lnk[MAX_PATH * 2], cmd[MAX_PATH * 8];
+    wchar_t la[MAX_PATH] = L"", datad[MAX_PATH * 2];
     wchar_t val[64]; DWORD sz = sizeof val;
     if (MessageBoxW(NULL, L"Remove VPP Forge and its .vpp file association?",
                     L"Uninstall VPP Forge", MB_YESNO | MB_ICONQUESTION) != IDYES) return;
@@ -411,9 +413,12 @@ static void do_uninstall(void) {
         DeleteFileW(lnk);
     }
     install_dir(dir, MAX_PATH * 2);
-    _snwprintf(cmd, MAX_PATH * 5 - 1,
-        L"cmd /c ping -n 3 127.0.0.1 >nul & rmdir /S /Q \"%s\"", dir);
-    cmd[MAX_PATH * 5 - 1] = 0;
+    GetEnvironmentVariableW(L"LOCALAPPDATA", la, MAX_PATH);
+    _snwprintf(datad, MAX_PATH * 2 - 1, L"%s\\VPPForge", la); datad[MAX_PATH * 2 - 1] = 0;
+    _snwprintf(cmd, MAX_PATH * 8 - 1,
+        L"cmd /c ping -n 3 127.0.0.1 >nul & rmdir /S /Q \"%s\" & rmdir /S /Q \"%s\"",
+        dir, datad);
+    cmd[MAX_PATH * 8 - 1] = 0;
     { STARTUPINFOW si; PROCESS_INFORMATION pi;
       memset(&si, 0, sizeof si); si.cb = sizeof si;
       si.dwFlags = STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE;
@@ -435,7 +440,7 @@ static void maybe_offer_setup(void) {
     if (is_installed()) {
         /* an older version is installed: refresh it in place so the .vpp
            association, Start Menu entry and Apps listing point at this build */
-        if (!installed_version_matches()) do_install();
+        if (!installed_version_matches()) g_just_installed = do_install();
         return;
     }
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\VPPForge", L"SetupDeclined",
@@ -448,7 +453,7 @@ static void maybe_offer_setup(void) {
         L"\x2022 Listed in Windows Apps for easy uninstall\n\n"
         L"Choose No to run without installing (it won't ask again).",
         L"VPP Forge Setup", MB_YESNO | MB_ICONQUESTION) == IDYES)
-        do_install();
+        g_just_installed = do_install();
     else
         reg_set_dw(HKEY_CURRENT_USER, L"Software\\VPPForge", L"SetupDeclined", 1);
 }
@@ -863,11 +868,12 @@ static int strncasecmp_portable(const char *a, const char *b, size_t n) {
 /* ------------------------------------------------------------- startup --- */
 
 static void build_page(void) {
-    char inject[160];
+    char inject[256];
     const char *mark;
     size_t before, marklen = strlen(BRIDGE_MARK);
     int il = snprintf(inject, sizeof inject,
-        "<script>window.VPP_BRIDGE={token:\"%s\"};</script>", g_token);
+        "<script>window.VPP_BRIDGE={token:\"%s\",ver:\"%s\",installed:%d};</script>",
+        g_token, VPP_VERSION, g_just_installed);
     mark = (const char *)memmem_portable(APP_HTML, APP_HTML_LEN, BRIDGE_MARK, marklen);
     if (!mark) { g_page = (char *)APP_HTML; g_page_len = APP_HTML_LEN; return; }
     before = (size_t)((const unsigned char *)mark - APP_HTML);
