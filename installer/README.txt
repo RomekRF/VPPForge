@@ -4,7 +4,9 @@ VPP FORGE · Red Faction archive workbench
 SETUP
   Run vppforge.exe. On first launch it asks whether to set itself up:
   say Yes and .vpp files open in VPP Forge on double-click, a Start
-  Menu entry appears, and it's listed in Windows Apps.
+  Menu entry appears, and it's listed in Windows Apps. A short
+  welcome page then walks you through the basics (reopen it any time
+  from Help > Getting started).
   If an older VPP Forge is already installed, there is no prompt:
   the new version silently updates the installed copy the first time
   you run it, and .vpp files open with the new version from then on.
@@ -14,9 +16,23 @@ SETUP
   SmartScreen may warn on first run because the exe is not code-signed.
   Choose "More info", then "Run anyway".
 
+USING IT
+  - Open a .vpp by double-click, drag and drop, the Open button, or
+    the Recent list on the start screen.
+  - Toolbar: New, Open, Save VPP, Add, Remove, Extract. Extract asks
+    for a destination folder and unpacks the selected files there.
+  - Select a file to preview it: textures, meshes, animations,
+    levels, fonts, tables and audio.
+  - F2 renames, Del removes, Alt Up/Down reorders, Ctrl S saves,
+    Ctrl F filters.
+  - Light/dark theme and the panel-swap button sit at the top right;
+    theme, layout and panel sizes are remembered between sessions.
+
 REMOVE
   Windows Settings > Apps > Installed apps > VPP Forge > Uninstall,
   or run: vppforge.exe /uninstall
+  This removes the app, the .vpp association, the Start Menu entry
+  and saved settings.
 
 NOTES
   - Windows 10 or 11, 64-bit. Uses your installed Edge or Chrome as
