@@ -53,7 +53,7 @@ typedef int sock_t;
 #define MAX_PATHS 64
 #define HDR_MAX 16384
 #define BRIDGE_MARK "<!--VPP_BRIDGE-->"
-#define VPP_VERSION "1.4.0"
+#define VPP_VERSION "1.5.0"
 #define WIDEN2(x) L ## x
 #define WIDEN(x) WIDEN2(x)
 #define SETTINGS_MAX 32768
@@ -291,6 +291,28 @@ static int plat_dialog_save(char *out_utf8, size_t cap, const char *suggest_utf8
       snprintf(out_utf8, cap, "%s", u);
       free(u); }
     return 1;
+}
+
+static int plat_dialog_folder(char *out_utf8, size_t cap) {
+    BROWSEINFOW bi;
+    wchar_t disp[MAX_PATH], path[MAX_PATH];
+    LPITEMIDLIST pidl;
+    int ok = 0;
+    HRESULT co = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    memset(&bi, 0, sizeof bi);
+    bi.pszDisplayName = disp;
+    bi.lpszTitle = L"Choose where to extract";
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    pidl = SHBrowseForFolderW(&bi);
+    if (pidl) {
+        if (SHGetPathFromIDListW(pidl, path)) {
+            char *u = wide_to_utf8(path);
+            if (u) { snprintf(out_utf8, cap, "%s", u); free(u); ok = 1; }
+        }
+        CoTaskMemFree(pidl);
+    }
+    if (SUCCEEDED(co)) CoUninitialize();
+    return ok;
 }
 
 /* ------------------------- self-install (single exe, no bat files) ------ */
@@ -562,6 +584,12 @@ static int plat_dialog_save(char *out, size_t cap, const char *suggest) {
     return 1;
 }
 static void plat_reveal(const char *p) { (void)p; }
+static int plat_dialog_folder(char *out, size_t cap) {
+    const char *p = getenv("VPPFORGE_TEST_FOLDER");
+    if (!p) return 0;
+    snprintf(out, cap, "%s", p);
+    return 1;
+}
 
 #endif
 
@@ -700,6 +728,55 @@ static void handle_settings_set(sock_t s, unsigned long long clen,
     resp_json(s, "{\"ok\":1}");
 }
 
+/* stream a POST body (extracted file bytes) into dir\name */
+static void handle_extract_file(sock_t s, const char *target,
+                                unsigned long long clen,
+                                const char *left, size_t leftn) {
+    char dir[4096], name[1024], full[5200];
+    FILE *f;
+    char buf[65536];
+    unsigned long long got = 0;
+    if (!qget(target, "dir", dir, sizeof dir) ||
+        !qget(target, "name", name, sizeof name) || !name[0]) {
+        resp_err(s, "400 Bad Request");
+        return;
+    }
+    if (strstr(name, "..") || strchr(name, '/') || strchr(name, '\\') || strchr(name, ':')) {
+        resp_err(s, "400 Bad Name");
+        return;
+    }
+#ifdef _WIN32
+    snprintf(full, sizeof full, "%s\\%s", dir, name);
+#else
+    snprintf(full, sizeof full, "%s/%s", dir, name);
+#endif
+    f = plat_fopen(full, "wb");
+    if (!f) { resp_err(s, "500 Cannot Write"); return; }
+    if (leftn) {
+        size_t take = leftn > clen ? (size_t)clen : leftn;
+        if (fwrite(left, 1, take, f) != take) { fclose(f); remove(full); resp_err(s, "500 Write Failed"); return; }
+        got = take;
+    }
+    while (got < clen) {
+        size_t want = sizeof buf;
+        if (clen - got < want) want = (size_t)(clen - got);
+#ifdef _WIN32
+        { int n = recv(s, buf, (int)want, 0);
+          if (n <= 0) { fclose(f); remove(full); return; }
+          if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) { fclose(f); remove(full); resp_err(s, "500 Write Failed"); return; }
+          got += (unsigned long long)n; }
+#else
+        { ssize_t n = recv(s, buf, want, 0);
+          if (n <= 0) { fclose(f); remove(full); return; }
+          if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) { fclose(f); remove(full); resp_err(s, "500 Write Failed"); return; }
+          got += (unsigned long long)n; }
+#endif
+    }
+    if (fflush(f) != 0) { fclose(f); remove(full); resp_err(s, "500 Write Failed"); return; }
+    fclose(f);
+    resp_json(s, "{\"ok\":1}");
+}
+
 static int parse_id(const char *target) {
     char v[16];
     int id;
@@ -820,6 +897,20 @@ static void handle_conn(sock_t s) {
         if (id < 0) { resp_err(s, "404 Not Found"); return; }
         plat_reveal(g_paths[id]);
         resp_json(s, "{\"ok\":1}");
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/dialog/folder", 14)) {
+        char dir[4096];
+        if (!plat_dialog_folder(dir, sizeof dir)) { resp_json(s, "{\"cancel\":1}"); return; }
+        {   char esc[8300], out[8400];
+            json_escape(esc, sizeof esc, dir);
+            snprintf(out, sizeof out, "{\"dir\":\"%s\"}", esc);
+            resp_json(s, out); }
+        return;
+    }
+    if (!strcmp(method, "POST") && !strncmp(target, "/extractfile", 12)) {
+        size_t leftn = got - (size_t)(body - hdr);
+        handle_extract_file(s, target, clen, body, leftn);
         return;
     }
     if (!strcmp(method, "GET") && !strncmp(target, "/settings", 9)) {

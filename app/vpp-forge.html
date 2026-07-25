@@ -106,15 +106,26 @@ svg.i{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;fill:none;stro
 #docChip.is-dirty .dirty{display:block}
 #docChip .empty{color:var(--text-3)}
 .tb-actions{display:flex; gap:6px; justify-content:flex-end; align-items:center; flex:none}
-#titlebar .search{flex:none; width:210px}
 .tb-sep{width:1px; height:18px; background:var(--border-2); margin:0 4px; flex:none}
-@media (max-width:1150px){
-  #titlebar .search{width:150px}
-  #titlebar .search .k{display:none}
+
+/* ============ toolbar ============ */
+#toolbar{
+  flex:none; display:flex; flex-wrap:wrap; gap:4px; align-items:center;
+  padding:5px 8px; background:var(--surface);
+  border-bottom:1px solid var(--border);
 }
-@media (max-width:980px){
-  #titlebar #btnAdd,#titlebar #btnExtract,#titlebar #btnRemove,.tb-sep{display:none}
-  #titlebar .search{width:120px}
+#toolbar .grow{flex:1}
+@media (max-width:700px){
+  #toolbar .btn .k{display:none}
+}
+.btn.tool{border-color:transparent; color:var(--text-2)}
+.btn.tool:hover{border-color:var(--border-2); color:var(--text)}
+.btn.tool.primary{color:#fff; border-color:var(--accent)}
+.btn.tool.primary:hover{border-color:var(--accent-hover)}
+#toolbar .search{flex:0 1 240px; min-width:110px}
+body.no-doc #toolbar{display:none}
+@media (max-width:640px){
+  #toolbar .search .k{display:none}
   .brand .name{display:none}
 }
 
@@ -400,31 +411,44 @@ body.dragging.no-doc #dropVeil{display:none}
     <div id="docChip"><span class="dirty"></span><span class="fname empty">No VPP open</span><span id="docStats" style="color:var(--text-3)"></span></div>
   </div>
   <div class="tb-actions">
-    <label class="search">
-      <svg class="i" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
-      <input id="search" type="text" placeholder="Filter files" autocomplete="off" spellcheck="false">
-      <span class="k">Ctrl F</span>
-    </label>
-    <button class="btn icon" id="btnAdd" title="Add files" aria-label="Add files">
-      <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-    </button>
-    <button class="btn icon" id="btnExtract" title="Extract selected" aria-label="Extract selected" disabled>
-      <svg class="i" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>
-    </button>
-    <button class="btn icon" id="btnRemove" title="Remove selected (Del)" aria-label="Remove selected" disabled>
-      <svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 13h8l1-13"/></svg>
-    </button>
-    <span class="tb-sep" aria-hidden="true"></span>
     <button class="btn icon" id="btnTheme" title="Switch to dark theme" aria-label="Switch theme">
       <svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
     </button>
-    <button class="btn" id="btnNew">New</button>
-    <button class="btn" id="btnOpen">Open<span class="k">Ctrl O</span></button>
-    <button class="btn primary" id="btnSave" disabled>
-      <svg class="i" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16"/></svg>
-      Save VPP
-    </button>
   </div>
+</div>
+
+<div id="toolbar">
+  <button class="btn tool" id="btnNew">
+    <svg class="i" viewBox="0 0 24 24"><path d="M13 4H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V10zm0 0v6h6"/></svg>
+    New
+  </button>
+  <button class="btn tool" id="btnOpen">
+    <svg class="i" viewBox="0 0 24 24"><path d="M3.5 7V5.5a1.5 1.5 0 011.5-1.5h4l2 2.5h8a1.5 1.5 0 011.5 1.5V9M3.5 7h17l-1.6 11a1.5 1.5 0 01-1.5 1.3H6.6a1.5 1.5 0 01-1.5-1.3z"/></svg>
+    Open<span class="k">Ctrl O</span>
+  </button>
+  <button class="btn tool primary" id="btnSave" disabled>
+    <svg class="i" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16"/></svg>
+    Save VPP
+  </button>
+  <span class="tb-sep" aria-hidden="true"></span>
+  <button class="btn tool" id="btnAdd" title="Add files to the VPP">
+    <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    Add
+  </button>
+  <button class="btn tool" id="btnRemove" title="Remove selected (Del)" disabled>
+    <svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 13h8l1-13"/></svg>
+    Remove
+  </button>
+  <button class="btn tool" id="btnExtract" title="Extract selected to a folder" disabled>
+    <svg class="i" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>
+    Extract
+  </button>
+  <span class="grow"></span>
+  <label class="search">
+    <svg class="i" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+    <input id="search" type="text" placeholder="Filter files" autocomplete="off" spellcheck="false">
+    <span class="k">Ctrl F</span>
+  </label>
 </div>
 
 <div id="workspace">
@@ -1935,6 +1959,7 @@ function openArchiveDialog(){
 function extractIds(ids){
   const list=state.entries.filter(e=>ids.has(e.id));
   if(!list.length)return;
+  if(BRIDGE){extractToFolder(list);return;}
   if(list.length===1){
     download(entryData(list[0]),list[0].name,"application/octet-stream");
     toast("Extracted "+list[0].name);
@@ -1944,6 +1969,27 @@ function extractIds(ids){
     download(zip,base+"-files.zip","application/zip");
     toast("Extracted "+plural(list.length,"file")+" as ZIP");
   }
+}
+async function extractToFolder(list){
+  let dir;
+  try{
+    const j=await bridgeJson("/dialog/folder");
+    if(j.cancel)return;
+    dir=j.dir;
+  }catch(_){toast("Could not open the folder picker",true);return;}
+  let n=0;
+  for(const e of list){
+    try{
+      const r=await fetch(bridgeUrl("/extractfile?dir="+encodeURIComponent(dir)+"&name="+encodeURIComponent(e.name)),
+        {method:"POST",body:entryData(e)});
+      if(!r.ok)throw 0;
+      n++;
+    }catch(_){
+      toast("Failed at "+e.name+" ("+n+" of "+list.length+" extracted)",true);
+      return;
+    }
+  }
+  toast("Extracted "+plural(n,"file")+" to "+dir);
 }
 function download(bytes,name,mime){
   const blob=bytes instanceof Blob?bytes:new Blob([bytes],{type:mime});
@@ -2078,6 +2124,7 @@ function renderChrome(){
   }else{cc.style.display="none";closePop();}
   $("emptyState").style.display=has?"none":"flex";
   $("workspace").style.display=has?"flex":"none";
+  document.body.classList.toggle("no-doc",!has);
 }
 function scrollToRow(id){
   const r=$("rows").querySelector('.row[data-id="'+id+'"]');
@@ -2143,8 +2190,8 @@ function renderPreview(){
     body.className="center";
     if(ids.length>1){
       let sz=0;for(const id of ids){const x=byId(id);if(x)sz+=x.size;}
-      body.innerHTML='<div class="placeholder"><svg viewBox="0 0 24 24"><path d="M8 4h9a2 2 0 012 2v9M5 8h9a2 2 0 012 2v9a1 1 0 01-1 1H6a2 2 0 01-2-2v-9a1 1 0 011-1z"/></svg><div class="t">'+ids.length+' files · '+fmtBytes(sz)+'</div><div>Extract as ZIP or remove from the toolbar</div></div>';
-      acts.appendChild(prevActionBtn(IC.zip,"Extract selection as ZIP",()=>extractIds(state.sel)));
+      body.innerHTML='<div class="placeholder"><svg viewBox="0 0 24 24"><path d="M8 4h9a2 2 0 012 2v9M5 8h9a2 2 0 012 2v9a1 1 0 01-1 1H6a2 2 0 01-2-2v-9a1 1 0 011-1z"/></svg><div class="t">'+ids.length+' files · '+fmtBytes(sz)+'</div><div>Extract or remove from the toolbar</div></div>';
+      acts.appendChild(prevActionBtn(IC.zip,BRIDGE?"Extract selection":"Extract selection as ZIP",()=>extractIds(state.sel)));
     }else{
       body.innerHTML='<div class="placeholder"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 4.5v5"/></svg><div class="t">Nothing selected</div><div>Select a file to preview it here</div></div>';
     }
@@ -2792,7 +2839,7 @@ function contextItems(){
   const canBig=e&&EXPANDABLE.has(TYPE_META[e.tkey].cat);
   return [
     ...(one&&canBig?[{label:"Open full size",icon:IC.expand,k:"Enter",fn:()=>openLightbox(e)}]:[]),
-    {label:one?"Extract file":"Extract "+n+" as ZIP",icon:IC.extract,fn:()=>extractIds(state.sel)},
+    {label:one?"Extract file…":"Extract "+n+" files…",icon:IC.extract,fn:()=>extractIds(state.sel)},
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
     "-",
     ...(one?[
@@ -2849,8 +2896,8 @@ function showWelcome(justInstalled){
     +'<ul '+ul+'>'
     +'<li>Double-click any <b>.vpp</b> file, or use File › Open VPP (Ctrl O). Recent files are in the File menu.</li>'
     +'<li>Select a file to preview it. F2 renames, Del removes, Alt ↑/↓ reorders, Ctrl S saves.</li>'
-    +'<li>Drag files from Explorer into the window to add them to the archive.</li>'
-    +'<li>Extract one file or the whole archive as ZIP from the Action menu.</li>'
+    +'<li>Drag files from Explorer into the window to add them to the VPP.</li>'
+    +'<li>Select files and hit Extract to unpack them into any folder.</li>'
     +'<li>Theme and layout choices are remembered between sessions.</li>'
     +'</ul>'
     +'<h3 '+h3+'>Coming from VPPBUILDER32 / VPVIEW32</h3>'
@@ -2862,7 +2909,6 @@ function showWelcome(justInstalled){
     +'<h3 '+h3+'>Uninstalling</h3>'
     +'<ul '+ul+'>'
     +'<li>Windows Settings › Apps › Installed apps › <b>VPP Forge</b> › Uninstall.</li>'
-    +'<li>This removes the app, the .vpp association, the Start Menu entry and saved settings.</li>'
     +'</ul>'
     +'<div style="display:flex;align-items:center;gap:12px;margin-top:18px">'
     +'<span style="color:var(--text-3);font-size:11.5px;flex:1">Reopen this page any time from Help › Getting started.</span>'
@@ -2916,8 +2962,8 @@ function menuItems(which){
       {label:"Open full size",icon:IC.expand,k:"Enter",off:!canBig,fn:()=>openLightbox(e)},
       "-",
       {label:"Add files…",fn:()=>$("fileAdd").click()},
-      {label:state.sel.size>1?"Extract "+state.sel.size+" as ZIP":"Extract selected",icon:IC.extract,off:!state.sel.size,fn:()=>extractIds(state.sel)},
-      {label:"Extract all as ZIP",icon:IC.zip,off:!has,fn:()=>extractIds(new Set(state.entries.map(x=>x.id)))},
+      {label:state.sel.size>1?"Extract "+state.sel.size+" files…":"Extract selected…",icon:IC.extract,off:!state.sel.size,fn:()=>extractIds(state.sel)},
+      {label:BRIDGE?"Extract all…":"Extract all as ZIP",icon:IC.zip,off:!has,fn:()=>extractIds(new Set(state.entries.map(x=>x.id)))},
       "-",
       {label:"Rename",icon:IC.rename,k:"F2",off:!one,fn:()=>beginRename([...state.sel][0])},
       {label:"Move up",icon:IC.up,k:"Alt ↑",off:!one||sorted,fn:()=>moveSelected(-1)},
