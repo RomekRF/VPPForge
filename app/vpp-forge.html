@@ -18,13 +18,13 @@
   --border:#dbd8d2; --border-2:#c9c5bd; --border-3:#aeaaa0;
   --accent:#1a66c4; --accent-hover:#2f7ce0; --accent-down:#1254a8;
   --accent-soft:rgba(26,102,196,.09); --accent-soft-2:rgba(26,102,196,.16);
-  --text:#1d1c1a; --text-2:#5d5850; --text-3:#8e887d;
+  --text:#1a1918; --text-2:#454039; --text-3:#736d62;
   --warn:#9a6b1f; --err:#b1402a; --ok:#4e7a3a;
   --c-text:#8a5a00; --c-level:#b5451a; --c-image:#2f6fa8; --c-anim:#7a5aa8;
   --c-audio:#5d7a3f; --c-model:#2e8a72; --c-bin:#8e887d;
   --card:#ffffff; --card-panel:#ffffff;
   --grid-line:rgba(0,0,0,.035);
-  --sans:"IBM Plex Sans",system-ui,sans-serif;
+  --sans:"Segoe UI","IBM Plex Sans",system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,monospace;
   --r:6px; --r-s:4px;
   --shadow:0 8px 24px rgba(30,28,24,.18), 0 2px 8px rgba(30,28,24,.12);
@@ -53,13 +53,13 @@ body{
 ::selection{background:var(--accent-soft-2)}
 :focus{outline:none}
 :focus-visible{outline:2px solid var(--accent); outline-offset:1px; border-radius:2px}
-svg.i{width:15px;height:15px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.i{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
 
 .btn{
   display:inline-flex; align-items:center; gap:7px;
-  height:30px; padding:0 12px; border-radius:var(--r-s);
+  height:26px; padding:0 10px; border-radius:var(--r-s);
   background:transparent; border:1px solid transparent;
-  color:var(--text-2); font:500 12.5px var(--sans); cursor:pointer;
+  color:var(--text-2); font:500 12px var(--sans); cursor:pointer;
   transition:background .1s,color .1s,border-color .1s;
   white-space:nowrap; user-select:none;
 }
@@ -70,28 +70,37 @@ svg.i{width:15px;height:15px;stroke:currentColor;stroke-width:1.7;fill:none;stro
 .btn.primary{background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600}
 .btn.primary:hover{background:var(--accent-hover); border-color:var(--accent-hover)}
 .btn.primary:active{background:var(--accent-down)}
-.btn.icon{width:30px; padding:0; justify-content:center}
-.btn.sm{height:26px; padding:0 9px; font-size:12px}
-.btn.icon.sm{width:26px; padding:0}
+.btn.icon{width:26px; padding:0; justify-content:center}
+.btn.sm{height:22px; padding:0 8px; font-size:11.5px}
+.btn.icon.sm{width:22px; padding:0}
 .btn:disabled{opacity:.38; cursor:default; pointer-events:none}
 .btn .k{font:400 10px var(--mono); color:inherit; opacity:.55; margin-left:2px}
 
 /* ============ title bar ============ */
 #titlebar{
-  flex:none; height:50px; display:grid;
+  flex:none; height:40px; display:grid;
   grid-template-columns:1fr auto 1fr; align-items:center;
-  padding:0 14px; background:var(--surface);
+  padding:0 10px; background:var(--surface);
   border-bottom:1px solid var(--border);
 }
+.tb-left{display:flex; align-items:center; gap:10px; min-width:0}
+#menubar{display:flex; gap:1px}
+#menubar button{
+  height:24px; padding:0 9px; border:none; background:none; border-radius:4px;
+  color:var(--text-2); font:400 12px var(--sans); cursor:default; user-select:none;
+}
+#menubar button:hover,#menubar button.open{background:var(--raised); color:var(--text)}
 .brand{display:flex; align-items:center; gap:9px; user-select:none}
 .brand .mark{width:20px;height:20px;border-radius:5px;background:url(data:image/png;base64,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) center/cover no-repeat;flex:none}
 .brand .name{font:600 12px var(--mono); letter-spacing:.14em; color:var(--text)}
 .brand .name b{color:#d0521c;font-weight:600}
 #docChip{
-  display:flex; align-items:center; gap:8px; min-width:0;
-  font:500 12.5px var(--mono); color:var(--text-2);
+  display:flex; align-items:center; gap:7px; min-width:0;
+  font:400 12px var(--sans); color:var(--text-2);
 }
-#docChip .fname{color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:34ch}
+#docChip .fname{color:var(--text); font-weight:600; cursor:text; border-bottom:1px dotted transparent; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:34ch}
+#docChip .fname:hover{border-bottom-color:var(--text-3)}
+#docChip input{height:20px;padding:0 5px;border-radius:3px;background:var(--bg);border:1px solid var(--accent);color:var(--text);font:600 12px var(--sans);width:24ch}
 #docChip .dirty{width:7px;height:7px;border-radius:50%;background:var(--accent-hover);flex:none;display:none}
 #docChip.is-dirty .dirty{display:block}
 #docChip .empty{color:var(--text-3)}
@@ -115,16 +124,16 @@ svg.i{width:15px;height:15px;stroke:currentColor;stroke-width:1.7;fill:none;stro
 }
 #prevHead{
   display:flex; align-items:center; gap:8px; flex:none;
-  padding:8px 12px 2px; min-width:0;
+  padding:6px 8px 1px; min-width:0;
 }
 #prevHead #prevActs{margin-left:auto; display:flex; gap:3px; flex:none}
 
 /* ---- type tree ---- */
-#typeTree{flex:none; max-height:38%; overflow-y:auto; padding:8px 6px; border-bottom:1px solid var(--border)}
+#typeTree{flex:none; max-height:38%; overflow-y:auto; padding:5px 4px; border-bottom:1px solid var(--border)}
 .tnode{
-  display:flex; align-items:center; gap:8px; height:26px; padding:0 8px;
+  display:flex; align-items:center; gap:6px; height:22px; padding:0 6px;
   border-radius:var(--r-s); cursor:pointer; user-select:none;
-  font:400 12px var(--sans); color:var(--text-2);
+  font:400 12px var(--sans); color:var(--text);
 }
 .tnode:hover{background:var(--surface-2); color:var(--text)}
 .tnode.on{background:var(--accent-soft); color:var(--text)}
@@ -134,23 +143,23 @@ svg.i{width:15px;height:15px;stroke:currentColor;stroke-width:1.7;fill:none;stro
 
 /* ---- preview panel ---- */
 #prevPane{flex:1; display:flex; flex-direction:column; min-height:0}
-#prevName{flex:1; min-width:0; font:600 12.5px var(--mono); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-#prevMeta{flex:none; padding:3px 12px 8px; font:400 11px var(--mono); color:var(--text-3);
+#prevName{flex:1; min-width:0; font:600 12px var(--sans); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+#prevMeta{flex:none; padding:1px 8px 6px; font:400 11px var(--sans); color:var(--text-2);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-#prevBody{flex:1; overflow:auto; min-height:0; padding:0 12px 12px; position:relative}
+#prevBody{flex:1; overflow:auto; min-height:0; padding:0 8px 8px; position:relative}
 #prevBody.center{display:flex; align-items:center; justify-content:center}
 .placeholder{display:flex; flex-direction:column; align-items:center; gap:7px; color:var(--text-3); text-align:center; font-size:12px; padding:12px}
 .placeholder svg{width:22px;height:22px;stroke:var(--text-3);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .placeholder .t{color:var(--text-2); font-weight:500}
 
-.viewer-bar{display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; min-height:24px}
-.vinfo{font:400 11px var(--mono); color:var(--text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.vinfo b{color:var(--text-2); font-weight:500}
+.viewer-bar{display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap; min-height:22px}
+.vinfo{font:400 11px var(--sans); color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.vinfo b{color:var(--text); font-weight:600}
 .vinfo .warn{color:var(--warn)}
 .seg{display:inline-flex; border:1px solid var(--border-2); border-radius:var(--r-s); overflow:hidden; background:var(--surface); flex:none}
 .seg button{
-  height:22px; padding:0 9px; border:none; background:none; cursor:pointer;
-  font:500 10.5px var(--mono); color:var(--text-2); border-left:1px solid var(--border-2);
+  height:20px; padding:0 8px; border:none; background:none; cursor:pointer;
+  font:500 11px var(--sans); color:var(--text-2); border-left:1px solid var(--border-2);
 }
 .seg button:first-child{border-left:none}
 .seg button:hover{color:var(--text)}
@@ -181,15 +190,15 @@ canvas.px{image-rendering:pixelated}
 .audio-card .hd{display:flex; align-items:center; gap:11px}
 .audio-card .ic{width:34px;height:34px;border-radius:8px;background:var(--accent-soft-2);display:grid;place-items:center;flex:none}
 .audio-card .ic svg{width:16px;height:16px;stroke:var(--accent-hover);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.audio-card .ttl{font:600 12px var(--mono); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.audio-card .ttl{font:600 12px var(--sans); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .audio-card .st{font:400 10.5px var(--mono); color:var(--text-3)}
 .audio-card audio{width:100%; height:36px}
 
 .kv{width:100%}
 .kv h3{font:600 10px var(--sans); letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); padding:9px 13px; border-bottom:1px solid var(--border)}
-.kv .r{display:flex; justify-content:space-between; gap:18px; padding:7px 13px; border-bottom:1px solid var(--border); font:400 11.5px var(--mono)}
+.kv .r{display:flex; justify-content:space-between; gap:16px; padding:5px 11px; border-bottom:1px solid var(--border); font:400 12px var(--sans)}
 .kv .r:last-child{border-bottom:none}
-.kv .r span:first-child{color:var(--text-3); flex:none}
+.kv .r span:first-child{color:var(--text-2); flex:none}
 .kv .r span:last-child{color:var(--text); text-align:right; overflow:hidden; text-overflow:ellipsis}
 
 .view3d{position:relative; width:100%; height:100%; min-height:200px; border:1px solid var(--border-2); border-radius:var(--r-s); overflow:hidden; background:#0d0c0b}
@@ -201,25 +210,25 @@ canvas.px{image-rendering:pixelated}
 .hint3d{position:absolute; left:8px; bottom:6px; font:400 10px var(--mono); color:var(--text-3); pointer-events:none}
 
 /* ============ list column ============ */
-#listTools{flex:none; display:flex; gap:6px; padding:10px 12px; border-bottom:1px solid var(--border); align-items:center}
+#listTools{flex:none; display:flex; gap:5px; padding:6px 8px; border-bottom:1px solid var(--border); align-items:center}
 .search{
   flex:1; min-width:0; display:flex; align-items:center; gap:8px;
-  height:30px; padding:0 10px; border-radius:var(--r-s);
+  height:26px; padding:0 8px; border-radius:var(--r-s);
   background:var(--surface); border:1px solid var(--border-2);
   transition:border-color .1s;
 }
 .search:focus-within{border-color:var(--accent)}
 .search svg.i{width:13px;height:13px;color:var(--text-3)}
-.search input{flex:1; min-width:0; background:none; border:none; color:var(--text); font:400 12.5px var(--sans)}
+.search input{flex:1; min-width:0; background:none; border:none; color:var(--text); font:400 12px var(--sans)}
 .search input::placeholder{color:var(--text-3)}
 .search .k{font:400 10px var(--mono); color:var(--text-3); border:1px solid var(--border-2); border-radius:3px; padding:0 4px}
 
 #colHead{
   flex:none; display:grid;
-  grid-template-columns:minmax(0,1.3fr) 96px minmax(0,1fr) 80px;
-  gap:0 10px; padding:0 12px; height:28px; align-items:center;
-  border-bottom:1px solid var(--border); background:var(--bg);
-  font:600 10px var(--sans); letter-spacing:.1em; text-transform:uppercase; color:var(--text-3);
+  grid-template-columns:minmax(0,1.4fr) 88px minmax(0,1fr) 70px;
+  gap:0 8px; padding:0 8px; height:22px; align-items:center;
+  border-bottom:1px solid var(--border); background:var(--surface);
+  font:600 11px var(--sans); color:var(--text-2);
   user-select:none;
 }
 #colHead span{cursor:pointer; display:inline-flex; align-items:center; gap:4px; white-space:nowrap}
@@ -228,20 +237,22 @@ canvas.px{image-rendering:pixelated}
 #colHead .arr{color:var(--accent-hover); font-size:9px}
 #rows{flex:1; overflow-y:auto; min-height:0; overscroll-behavior:contain}
 .row{
-  display:grid; grid-template-columns:minmax(0,1.3fr) 96px minmax(0,1fr) 80px;
-  gap:0 10px; align-items:center; height:28px; padding:0 12px;
-  border-left:3px solid transparent; cursor:default; user-select:none;
-  font:400 12px var(--mono); color:var(--text-2);
+  display:grid; grid-template-columns:minmax(0,1.4fr) 88px minmax(0,1fr) 70px;
+  gap:0 8px; align-items:center; height:22px; padding:0 8px;
+  border-left:2px solid transparent; cursor:default; user-select:none;
+  font:400 12px var(--sans); color:var(--text);
 }
 .row:hover{background:var(--surface)}
 .row.sel{background:var(--accent-soft); border-left-color:var(--accent); color:var(--text)}
-.row .nm{display:flex; align-items:center; min-width:0}
+.row .nm{display:flex; align-items:center; gap:6px; min-width:0}
+.ficon{width:14px;height:14px;flex:none;display:inline-flex}
+.ficon svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .row .fn{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .row .fn .hit{color:var(--accent-hover)}
-.row .tp{font-size:11px; color:var(--text-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--sans)}
-.row .info{font-size:10.5px; color:var(--text-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.row .tp{font-size:11.5px; color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.row .info{font-size:11.5px; color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-variant-numeric:tabular-nums}
 .row.sel .tp,.row.sel .info{color:var(--text-2)}
-.row .sz{text-align:right; font-size:11px; color:var(--text-3); font-variant-numeric:tabular-nums}
+.row .sz{text-align:right; font-size:11.5px; color:var(--text-2); font-variant-numeric:tabular-nums}
 .row.sel .sz{color:var(--text-2)}
 body:not(.theme-dark) .row.sel{background:var(--accent); border-left-color:var(--accent-down); color:#fff}
 body:not(.theme-dark) .row.sel .sz,
@@ -251,13 +262,13 @@ body:not(.theme-dark) .row.sel .fn .hit{color:#fff; text-decoration:underline}
 body:not(.theme-dark) .tnode.on{background:var(--accent); color:#fff}
 body:not(.theme-dark) .tnode.on .cnt{color:rgba(255,255,255,.8)}
 @media (max-width:1150px){
-  #colHead,#rows .row{grid-template-columns:minmax(0,1.3fr) 96px 80px}
+  #colHead,#rows .row{grid-template-columns:minmax(0,1.4fr) 88px 70px}
   #colHead .inf,.row .info{display:none}
 }
 #listFoot{
   flex:none; display:flex; align-items:center; gap:10px;
-  height:28px; padding:0 12px; border-top:1px solid var(--border);
-  font:400 11px var(--mono); color:var(--text-3); background:var(--surface);
+  height:22px; padding:0 8px; border-top:1px solid var(--border);
+  font:400 11px var(--sans); color:var(--text-2); background:var(--surface);
 }
 #listFoot .grow{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 #checksChip{
@@ -299,7 +310,7 @@ body.dragging #dropCard{border-color:var(--accent); background:var(--accent-soft
   background:var(--raised); border:1px solid var(--border-3); border-radius:var(--r);
   padding:5px; box-shadow:var(--shadow); user-select:none;
 }
-#menu .mi{display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:4px; font:400 12.5px var(--sans); color:var(--text); cursor:pointer}
+#menu .mi{display:flex; align-items:center; gap:9px; padding:5px 9px; border-radius:4px; font:400 12px var(--sans); color:var(--text); cursor:pointer}
 #menu .mi:hover{background:var(--accent-soft-2)}
 #menu .mi.off{opacity:.4; pointer-events:none}
 #menu .mi svg.i{color:var(--text-2)}
@@ -348,7 +359,7 @@ body.dragging.no-doc #dropVeil{display:none}
   flex:none; display:flex; align-items:center; gap:10px; padding:10px 16px;
   border-bottom:1px solid var(--border-2); background:var(--surface);
 }
-#lbName{font:600 13px var(--mono); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+#lbName{font:600 12.5px var(--sans); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 #lbCtl{margin-left:auto; display:flex; gap:6px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
 #lbBody{flex:1; overflow:auto; min-height:0; padding:18px; display:grid; place-items:center}
 #lbBody.top{place-items:start center}
@@ -361,11 +372,19 @@ body.dragging.no-doc #dropVeil{display:none}
 <body class="no-doc">
 
 <div id="titlebar">
-  <div class="brand">
-    <span class="mark"></span>
-    <span class="name">VPP<b>FORGE</b></span>
+  <div class="tb-left">
+    <div class="brand">
+      <span class="mark"></span>
+      <span class="name">VPP<b>FORGE</b></span>
+    </div>
+    <div id="menubar">
+      <button data-m="file">File</button>
+      <button data-m="action">Action</button>
+      <button data-m="tools">Tools</button>
+      <button data-m="help">Help</button>
+    </div>
   </div>
-  <div id="docChip"><span class="dirty"></span><span class="fname empty">No archive open</span><span id="docStats" style="color:var(--text-3)"></span></div>
+  <div id="docChip"><span class="dirty"></span><span class="fname empty">No VPP open</span><span id="docStats" style="color:var(--text-3)"></span></div>
   <div class="tb-actions">
     <button class="btn icon" id="btnTheme" title="Switch to dark theme" aria-label="Switch theme">
       <svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
@@ -374,7 +393,7 @@ body.dragging.no-doc #dropVeil{display:none}
     <button class="btn" id="btnOpen">Open<span class="k">Ctrl O</span></button>
     <button class="btn primary" id="btnSave" disabled>
       <svg class="i" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16"/></svg>
-      Save archive
+      Save VPP
     </button>
   </div>
 </div>
@@ -437,16 +456,16 @@ body.dragging.no-doc #dropVeil{display:none}
 
 <div id="emptyState">
   <div class="brand" style="transform:scale(1.35)"><span class="mark"></span></div>
-  <h1>Build and inspect Red Faction archives</h1>
+  <h1>Build and inspect Red Faction VPPs</h1>
   <div class="sub">A modern workbench for <span class="m">.vpp</span> packages. Byte-exact VPP v1 writer verified against the retail game files, with viewers for textures, animations, audio, levels, fonts, and static meshes.</div>
   <div id="dropCard">
     <svg viewBox="0 0 24 24"><path d="M12 3v10m0 0l-4-4m4 4l4-4M4 15v4a2 2 0 002 2h12a2 2 0 002-2v-4"/></svg>
-    <b>Drop a .vpp archive to open it</b>
-    <small>or drop loose files to start a new archive from them</small>
+    <b>Drop a .vpp to open it</b>
+    <small>or drop loose files to start a new VPP from them</small>
   </div>
   <div class="cta">
-    <button class="btn outline" id="btnOpen2">Open archive</button>
-    <button class="btn outline" id="btnNew2">Start new archive</button>
+    <button class="btn outline" id="btnOpen2">Open VPP</button>
+    <button class="btn outline" id="btnNew2">Start new VPP</button>
   </div>
   <div class="note">Successor to Descent Manager VPPBUILDER32 + VPVIEW32 · original code by Heiko Herrmann, Descent Network</div>
 </div>
@@ -510,7 +529,7 @@ function buildVpp(list){
   const num=list.length;
   let total=align2048(SECTOR+64*num);
   for(const e of list)total+=align2048(e.data.length);
-  if(total>0xFFFFFFFF)throw new Error("Archive would exceed 4 GB. The VPP size field is 32-bit.");
+  if(total>0xFFFFFFFF)throw new Error("This VPP would exceed 4 GB. The size field in the format is 32-bit.");
   const out=new Uint8Array(total);
   const dv=new DataView(out.buffer);
   dv.setUint32(0,VPP_SIG,true); dv.setUint32(4,1,true);
@@ -698,6 +717,124 @@ function decodePcx(d){
   }
   return {width,height,rgba,bpp:totalBits,planes:nplanes,rle:enc===1,version};
 }
+/* ---- DDS · DirectDraw Surface (DXT1/3/5, DX10 BC1-3, uncompressed) ----
+   Dash Faction loads .dds texture overrides in Red Faction, so modern
+   mod archives carry them. Top mip of the first face is decoded. */
+function dds565(v){
+  const r=(v>>11)&31,g=(v>>5)&63,b=v&31;
+  return [(r<<3)|(r>>2),(g<<2)|(g>>4),(b<<3)|(b>>2)];
+}
+function decodeDds(d){
+  const dv=new DataView(d.buffer,d.byteOffset,d.byteLength);
+  if(d.length<128||dv.getUint32(0,true)!==0x20534444)throw new Error("Not a DDS texture");
+  if(dv.getUint32(4,true)!==124)throw new Error("Bad DDS header size");
+  const flags=dv.getUint32(8,true);
+  const height=dv.getUint32(12,true),width=dv.getUint32(16,true);
+  const mips=(flags&0x20000)?Math.max(1,dv.getUint32(28,true)):1;
+  if(!width||!height||width>16384||height>16384)throw new Error("Bad DDS dimensions");
+  const pfFlags=dv.getUint32(80,true),fourCC=dv.getUint32(84,true);
+  const bitCount=dv.getUint32(88,true);
+  const rM=dv.getUint32(92,true),gM=dv.getUint32(96,true),bM=dv.getUint32(100,true),aM=dv.getUint32(104,true);
+  let off=128,codec=null,fmtName="";
+  const FC=s=>s.charCodeAt(0)|(s.charCodeAt(1)<<8)|(s.charCodeAt(2)<<16)|(s.charCodeAt(3)<<24);
+  if(pfFlags&0x4){
+    if(fourCC===FC("DX10")){
+      if(d.length<148)throw new Error("Truncated DX10 header");
+      const dxgi=dv.getUint32(128,true);off=148;
+      if(dxgi===70||dxgi===71||dxgi===72){codec="bc1";fmtName="BC1";}
+      else if(dxgi===73||dxgi===74||dxgi===75){codec="bc2";fmtName="BC2";}
+      else if(dxgi===76||dxgi===77||dxgi===78){codec="bc3";fmtName="BC3";}
+      else if(dxgi===27||dxgi===28||dxgi===29){codec="rgba8";fmtName="RGBA 32";}
+      else if(dxgi===87||dxgi===88||dxgi===91||dxgi===92){codec="bgra8";fmtName="BGRA 32";}
+      else throw new Error("DDS DXGI format "+dxgi+" not supported");
+    }
+    else if(fourCC===FC("DXT1")){codec="bc1";fmtName="DXT1";}
+    else if(fourCC===FC("DXT2")||fourCC===FC("DXT3")){codec="bc2";fmtName="DXT3";}
+    else if(fourCC===FC("DXT4")||fourCC===FC("DXT5")){codec="bc3";fmtName="DXT5";}
+    else throw new Error("DDS FourCC not supported");
+  }else if(pfFlags&0x40){codec="masked";fmtName=bitCount+"-bit";}
+  else if(pfFlags&0x20000){codec="lum";fmtName="luminance "+bitCount;}
+  else throw new Error("DDS pixel format not supported");
+  const rgba=new Uint8ClampedArray(width*height*4);
+  let hasAlpha=false;
+  if(codec==="bc1"||codec==="bc2"||codec==="bc3"){
+    const bw=Math.ceil(width/4),bh=Math.ceil(height/4);
+    const bsize=codec==="bc1"?8:16;
+    if(off+bw*bh*bsize>d.length)throw new Error("DDS data truncated");
+    let p=off;
+    for(let by=0;by<bh;by++)for(let bx=0;bx<bw;bx++){
+      let alpha=null;
+      if(codec==="bc2"){
+        alpha=[];
+        for(let i=0;i<8;i++){const b=d[p+i];alpha.push((b&15)*17,(b>>4)*17);}
+        p+=8;
+      }else if(codec==="bc3"){
+        const a0=d[p],a1=d[p+1];
+        const at=[a0,a1];
+        if(a0>a1)for(let i=1;i<=6;i++)at.push(Math.floor(((7-i)*a0+i*a1)/7));
+        else{for(let i=1;i<=4;i++)at.push(Math.floor(((5-i)*a0+i*a1)/5));at.push(0,255);}
+        let lo=d[p+2]|(d[p+3]<<8)|(d[p+4]<<16),hi=d[p+5]|(d[p+6]<<8)|(d[p+7]<<16);
+        alpha=[];
+        for(let i=0;i<8;i++){alpha.push(at[(lo>>(3*i))&7]);}
+        for(let i=0;i<8;i++){alpha.push(at[(hi>>(3*i))&7]);}
+        p+=8;
+      }
+      const c0=d[p]|(d[p+1]<<8),c1=d[p+2]|(d[p+3]<<8);
+      const bits=d[p+4]|(d[p+5]<<8)|(d[p+6]<<16)|(d[p+7]<<24);
+      p+=8;
+      const e0=dds565(c0),e1=dds565(c1);
+      const pal=[[...e0,255],[...e1,255]];
+      if(codec!=="bc1"||c0>c1){
+        pal.push([(2*e0[0]+e1[0])/3|0,(2*e0[1]+e1[1])/3|0,(2*e0[2]+e1[2])/3|0,255]);
+        pal.push([(e0[0]+2*e1[0])/3|0,(e0[1]+2*e1[1])/3|0,(e0[2]+2*e1[2])/3|0,255]);
+      }else{
+        pal.push([(e0[0]+e1[0])>>1,(e0[1]+e1[1])>>1,(e0[2]+e1[2])>>1,255]);
+        pal.push([0,0,0,0]);
+      }
+      for(let t=0;t<16;t++){
+        const x=bx*4+(t&3),y=by*4+(t>>2);
+        if(x>=width||y>=height)continue;
+        const c=pal[(bits>>>(2*t))&3];
+        const o=(y*width+x)*4;
+        rgba[o]=c[0];rgba[o+1]=c[1];rgba[o+2]=c[2];
+        const a=alpha?alpha[t]:c[3];
+        rgba[o+3]=a;
+        if(a<255)hasAlpha=true;
+      }
+    }
+  }else if(codec==="rgba8"||codec==="bgra8"){
+    if(off+width*height*4>d.length)throw new Error("DDS data truncated");
+    for(let i=0;i<width*height;i++){
+      const p=off+i*4,o=i*4;
+      if(codec==="rgba8"){rgba[o]=d[p];rgba[o+1]=d[p+1];rgba[o+2]=d[p+2];rgba[o+3]=d[p+3];}
+      else{rgba[o]=d[p+2];rgba[o+1]=d[p+1];rgba[o+2]=d[p];rgba[o+3]=d[p+3];}
+      if(rgba[o+3]<255)hasAlpha=true;
+    }
+  }else{
+    const bpp=bitCount>>3;
+    if(!bpp||off+width*height*bpp>d.length)throw new Error("DDS data truncated");
+    const chan=m=>{
+      if(!m)return null;
+      let s=0;while(!((m>>s)&1))s++;
+      const max=m>>>s;
+      return {s,max};
+    };
+    const R=chan(rM),G=chan(gM),B=chan(bM),A=chan(aM),L=codec==="lum"?chan(rM||((1<<bitCount)-1)):null;
+    for(let i=0;i<width*height;i++){
+      let px=0;
+      for(let b=0;b<bpp;b++)px|=d[off+i*bpp+b]<<(8*b);
+      px=px>>>0;
+      const o=i*4;
+      const get=c=>c?Math.round(((px>>>c.s)&c.max)*255/c.max):0;
+      if(codec==="lum"){const v=get(L||R);rgba[o]=rgba[o+1]=rgba[o+2]=v;}
+      else{rgba[o]=get(R);rgba[o+1]=get(G);rgba[o+2]=get(B);}
+      rgba[o+3]=A?get(A):255;
+      if(rgba[o+3]<255)hasAlpha=true;
+    }
+  }
+  return {width,height,rgba,fmtName,mips,hasAlpha};
+}
+
 /* ---- VF · Volition Font (spec: rf-reversed/vf_format.h) ---- */
 const VF_SIG=0x544E4656;
 function decodeVf(d){
@@ -1526,6 +1663,7 @@ function typeKeyOf(n){
   const x=extOf(n);
   if(x==="rfl")return "rfl";
   if(x==="tga")return "tga";
+  if(x==="dds")return "dds";
   if(x==="vbm")return "vbm";
   if(x==="v3m")return "v3m";
   if(x==="v3c")return "v3c";
@@ -1549,6 +1687,7 @@ const TYPE_META={
   audio:{tree:"Audio",              list:"Audio",          color:"var(--c-audio)", disk:"#8ba86e", cat:"audio"},
   text: {tree:"Tables + text",      list:"Text",           color:"var(--c-text)",  disk:"#c9a35a", cat:"text"},
   pcx:  {tree:"Images · PCX",       list:"PCX graphic",    color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
+  dds:  {tree:"Textures · DDS",     list:"DDS texture",    color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
   vf:   {tree:"Fonts · VF",         list:"RF font",        color:"var(--c-text)",  disk:"#c9a35a", cat:"font"},
   rfa:  {tree:"Character anims · RFA",list:"Character animation",color:"var(--c-anim)",disk:"#a58cc8", cat:"rfa"},
   mvf:  {tree:"Motions · MVF",      list:"Motion capture", color:"var(--c-anim)",  disk:"#a58cc8", cat:"rfa"},
@@ -1558,6 +1697,18 @@ const TYPE_META={
   other:{tree:"Other files",        list:"Data",           color:"var(--c-bin)",   disk:"#57524a", cat:"bin"},
 };
 const EXPANDABLE=new Set(["image","anim","model","text","level","bin","font","rfa"]);
+const TYPE_ICON={
+  level:'<svg viewBox="0 0 24 24"><path d="M4 20l5-12 4 7 3-4 4 9H4z"/><circle cx="17" cy="6" r="1.6"/></svg>',
+  image:'<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9.2" cy="10" r="1.5"/><path d="M4.5 17l4.5-4 3 2.6 3.6-4L20 16.5"/></svg>',
+  anim:'<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 5v14M16 5v14M4 9.5h4M4 14.5h4M16 9.5h4M16 14.5h4"/></svg>',
+  model:'<svg viewBox="0 0 24 24"><path d="M12 3.5l7 4v9l-7 4-7-4v-9l7-4z"/><path d="M12 3.5v8m0 0l7-4m-7 4l-7-4M12 11.5v9"/></svg>',
+  audio:'<svg viewBox="0 0 24 24"><path d="M5 10v4h3.5l4.5 3.5v-11L8.5 10H5z"/><path d="M16 9.5a4 4 0 010 5M18.5 7.5a7 7 0 010 9"/></svg>',
+  text:'<svg viewBox="0 0 24 24"><path d="M7 3.5h7l4 4v13H7v-17z"/><path d="M14 3.5V8h4M9.5 12h6M9.5 15h6M9.5 18h4"/></svg>',
+  font:'<svg viewBox="0 0 24 24"><path d="M6 19L12 5l6 14M8.2 14.5h7.6"/></svg>',
+  rfa:'<svg viewBox="0 0 24 24"><circle cx="13" cy="5.5" r="1.8"/><path d="M9 10.5l4-2 3.5 2.5-2 3 2.5 5M12.5 13l-3 2-2 4.5M13 8.5l-1 4.5"/></svg>',
+  bin:'<svg viewBox="0 0 24 24"><path d="M7 3.5h7l4 4v13H7v-17z"/><path d="M14 3.5V8h4"/></svg>',
+};
+const typeIcon=cat=>'<span class="ficon" style="color:'+({level:"var(--c-level)",image:"var(--c-image)",anim:"var(--c-anim)",model:"var(--c-model)",audio:"var(--c-audio)",text:"var(--c-text)",font:"var(--c-text)",rfa:"var(--c-anim)",bin:"var(--c-bin)"}[cat]||"var(--c-bin)")+'">'+(TYPE_ICON[cat]||TYPE_ICON.bin)+'</span>';
 const fmtBytes=b=>b<1024?b+" B":b<1048576?(b/1024).toFixed(1)+" KB":b<1073741824?(b/1048576).toFixed(2)+" MB":(b/1073741824).toFixed(2)+" GB";
 const sect=s=>s===0?0:Math.ceil(s/SECTOR);
 const esc=s=>s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -1601,6 +1752,14 @@ function probeInfo(e){
         e.info=plural(ns,"submesh"+(ns===1?"":"e").replace("e",""))+"";
         e.info=ns+" submesh"+(ns===1?"":"es")+" · "+plural(nm,"material");
       }else e.info="";
+    }else if(key==="dds"&&d.length>=128&&dv.getUint32(0,true)===0x20534444){
+      try{
+        const w=dv.getUint32(16,true),h=dv.getUint32(12,true);
+        const fcc=dv.getUint32(84,true);
+        const nm=fcc===0x31545844?"DXT1":fcc===0x33545844?"DXT3":fcc===0x35545844?"DXT5":fcc===0x30315844?"DX10":(dv.getUint32(88,true)+"-bit");
+        const mm=(dv.getUint32(8,true)&0x20000)?dv.getUint32(28,true):1;
+        e.info=w+" × "+h+" · "+nm+(mm>1?" · "+mm+" mips":"");
+      }catch(_){e.info="";}
     }else if(key==="pcx"&&d.length>=128&&d[0]===0x0A){
       const w=(d[8]|(d[9]<<8))-(d[4]|(d[5]<<8))+1;
       const h=(d[10]|(d[11]<<8))-(d[6]|(d[7]<<8))+1;
@@ -1645,7 +1804,7 @@ function loadArchive(name,buf){
   $("search").value="";
   for(const e of state.entries)probeInfo(e);
   if(state.entries.length){state.sel.add(state.entries[0].id);state.anchor=state.entries[0].id;}
-  if(parsed.truncated)toast("Archive appears truncated. Some file data may be missing.",true);
+  if(parsed.truncated)toast("This VPP appears truncated. Some file data may be missing.",true);
   else toast("Opened "+name+" · "+plural(state.entries.length,"file"));
   refreshAll();
 }
@@ -1725,6 +1884,15 @@ function bridgeSaveTo(id,nm,out){
 }
 function saveArchive(forceDialog){
   if(state.name===null||!state.entries.length)return;
+  if(BRIDGE&&state.saveId!=null&&!forceDialog){
+    if(!confirm("Save over "+state.name+"?\n\nThis replaces the VPP on disk."))return;
+  }
+  if(!BRIDGE&&state.name==="untitled.vpp"){
+    const nv=sanitizeVppName(window.prompt("Name this VPP:","untitled.vpp"));
+    if(!nv)return;
+    state.name=nv;
+    renderChrome();
+  }
   let out;
   try{ out=buildVpp(state.entries.map(e=>({name:e.name,data:entryData(e)}))); }
   catch(err){ toast(err.message,true); return; }
@@ -1786,7 +1954,7 @@ function computeChecks(){
   }
   let total=align2048(SECTOR+64*state.entries.length);
   for(const e of state.entries)total+=align2048(e.size);
-  if(total>0xFFFFFFFF)w.push(["err","Archive exceeds 4 GB. The VPP size field is 32-bit and the game cannot read this."]);
+  if(total>0xFFFFFFFF)w.push(["err","This VPP exceeds 4 GB. The size field is 32-bit and the game cannot read it."]);
   return {checks:w,total};
 }
 
@@ -1817,17 +1985,17 @@ function renderTree(){
   if(!state.entries.length)return;
   const counts=new Map();
   for(const e of state.entries)counts.set(e.tkey,(counts.get(e.tkey)||0)+1);
-  const order=["rfl","tga","pcx","vbm","v3m","v3c","rfa","mvf","vf","vfx","audio","text","ani","pof","other"];
+  const order=["rfl","tga","dds","pcx","vbm","v3m","v3c","rfa","mvf","vf","vfx","audio","text","ani","pof","other"];
   const all=document.createElement("div");
   all.className="tnode all"+(state.typeFilter?"":" on");
-  all.innerHTML='<span class="lbl">All files</span><span class="cnt">'+state.entries.length+'</span>';
+  all.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">All files</span><span class="cnt">'+state.entries.length+'</span>';
   all.addEventListener("click",()=>{state.typeFilter=null;refreshList();});
   t.appendChild(all);
   for(const k of order){
     if(!counts.has(k))continue;
     const d=document.createElement("div");
     d.className="tnode"+(state.typeFilter===k?" on":"");
-    d.innerHTML='<span class="lbl">'+esc(TYPE_META[k].tree)+'</span><span class="cnt">'+counts.get(k)+'</span>';
+    d.innerHTML=typeIcon(TYPE_META[k].cat)+'<span class="lbl">'+esc(TYPE_META[k].tree)+'</span><span class="cnt">'+counts.get(k)+'</span>';
     d.addEventListener("click",()=>{state.typeFilter=state.typeFilter===k?null:k;refreshList();});
     t.appendChild(d);
   }
@@ -1846,7 +2014,7 @@ function renderRows(){
   if(state.name!==null&&!vis.length){
     const d=document.createElement("div");
     d.style.cssText="padding:26px 16px;text-align:center;color:var(--text-3);font:400 12px var(--sans)";
-    d.textContent=state.entries.length?"No files match the current filter.":"Empty archive. Add files with the + button or drop them here.";
+    d.textContent=state.entries.length?"No files match the current filter.":"Empty VPP. Add files with the + button or drop them here.";
     cont.appendChild(d);
   }
   const frag=document.createDocumentFragment();
@@ -1856,7 +2024,7 @@ function renderRows(){
     r.dataset.id=e.id;
     const m=TYPE_META[e.tkey];
     r.innerHTML=
-      '<span class="nm"><span class="fn">'+highlightName(e.name)+'</span></span>'+
+      '<span class="nm">'+typeIcon(m.cat)+'<span class="fn">'+highlightName(e.name)+'</span></span>'+
       '<span class="tp">'+esc(m.list)+'</span>'+
       '<span class="info">'+esc(e.info||"")+'</span>'+
       '<span class="sz">'+fmtBytes(e.size)+'</span>';
@@ -1878,7 +2046,7 @@ function renderChrome(){
   const chip=$("docChip");
   chip.classList.toggle("is-dirty",state.dirty);
   chip.querySelector(".fname").className="fname"+(has?"":" empty");
-  chip.querySelector(".fname").textContent=has?state.name:"No archive open";
+  chip.querySelector(".fname").textContent=has?state.name:"No VPP open";
   const {checks,total}=computeChecks();
   $("docStats").textContent=has&&state.entries.length?"· "+plural(state.entries.length,"file")+" · "+fmtBytes(total):"";
   document.title=(state.dirty?"● ":"")+(has?state.name+" · ":"")+"VPP Forge";
@@ -1924,6 +2092,7 @@ function getDecoded(e,kind){
   else if(kind==="vbm")v=decodeVbm(d);
   else if(kind==="v3m")v=V3M.parse(d.slice().buffer);
   else if(kind==="pcx")v=decodePcx(d);
+  else if(kind==="dds")v=decodeDds(d);
   else if(kind==="vf")v=decodeVf(d);
   decodeCache.set(e.id,{kind,value:v});
   return v;
@@ -1985,10 +2154,13 @@ function renderContent(body,e,big,acts){
   try{
     switch(TYPE_META[e.tkey].cat){
       case "image":{
-        const isPcx=extOf(e.name)==="pcx";
-        const img=getDecoded(e,isPcx?"pcx":"tga");
-        const meta=isPcx
+        const ex=extOf(e.name);
+        const kind=ex==="pcx"?"pcx":ex==="dds"?"dds":"tga";
+        const img=getDecoded(e,kind);
+        const meta=kind==="pcx"
           ?('<b>'+img.width+' × '+img.height+'</b> · '+img.bpp+'-bit'+(img.planes>1?' · '+img.planes+' planes':'')+(img.rle?' · RLE':'')+' · PCX')
+          :kind==="dds"
+          ?('<b>'+img.width+' × '+img.height+'</b> · '+img.fmtName+(img.mips>1?' · '+img.mips+' mips':'')+(img.hasAlpha?' · alpha':''))
           :('<b>'+img.width+' × '+img.height+'</b> · '+img.bpp+'-bit'+(img.imgType>=9?' · RLE':'')+(img.hasAlpha?' · alpha':''));
         renderImage(body,e,img,meta,big);
         addAct(IC.png,"Export as PNG",()=>exportCanvasPng(body.querySelector("canvas"),baseName(e.name)+".png"));
@@ -2282,7 +2454,7 @@ function loadThree(){
 const stemOf=n=>{if(!n)return "";const f=n.replace(/\\/g,"/").split("/").pop();const d=f.lastIndexOf(".");return (d>0?f.slice(0,d):f).toLowerCase();};
 function textureCanvasFor(entry){
   try{
-    const k=entry.tkey==="vbm"?"vbm":"tga";
+    const k=entry.tkey==="vbm"?"vbm":entry.tkey==="dds"?"dds":"tga";
     const dec=getDecoded(entry,k);
     const w=dec.width,h=dec.height;
     const cv=document.createElement("canvas");
@@ -2378,9 +2550,10 @@ function makeViewer3d(holder,model,ui){
     const st=stemOf(name);
     if(!st)return null;
     if(texCache.has(st))return texCache.get(st);
-    let entry=state.entries.find(x=>x.name.toLowerCase()===st+".tga")
+    let entry=state.entries.find(x=>x.name.toLowerCase()===st+".dds")
+           ||state.entries.find(x=>x.name.toLowerCase()===st+".tga")
            ||state.entries.find(x=>x.name.toLowerCase()===st+".vbm")
-           ||state.entries.find(x=>(x.tkey==="tga"||x.tkey==="vbm")&&stemOf(x.name)===st);
+           ||state.entries.find(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm")&&stemOf(x.name)===st);
     let tex=null;
     if(entry){
       const tc=textureCanvasFor(entry);
@@ -2575,7 +2748,12 @@ function openMenu(x,y,items){
   m.style.left=Math.min(x,window.innerWidth-mw-8)+"px";
   m.style.top=Math.min(y,window.innerHeight-mh-8)+"px";
 }
-function closeMenu(){$("menu").style.display="none";}
+let mbOpen=null;
+function closeMenu(){
+  $("menu").style.display="none";
+  mbOpen=null;
+  document.querySelectorAll("#menubar button").forEach(b=>b.classList.remove("open"));
+}
 function openPop(html,anchor){
   const p=$("pop");
   p.innerHTML=html;
@@ -2618,8 +2796,8 @@ $("btnMore").addEventListener("click",ev=>{
     ...(BRIDGE?[{label:"Save a copy as…",icon:IC.extract,off:!state.entries.length,fn:()=>saveArchive(true)},"-"]:[]),
     {label:"Extract all as ZIP",icon:IC.zip,off:!state.entries.length,fn:()=>extractIds(new Set(state.entries.map(e=>e.id)))},
     {label:"Select all",icon:IC.all,k:"Ctrl A",off:!state.entries.length,fn:selectAll},
-    {label:"Restore archive order",icon:IC.order,off:!state.sortKey,fn:()=>{state.sortKey=null;renderRows();}},
-    {label:"Write view order to archive",icon:IC.order,off:!state.sortKey,fn:applyViewOrder},
+    {label:"Restore VPP order",icon:IC.order,off:!state.sortKey,fn:()=>{state.sortKey=null;renderRows();}},
+    {label:"Write view order to VPP",icon:IC.order,off:!state.sortKey,fn:applyViewOrder},
     "-",
     ...(BRIDGE?[]:[{label:"Install as app · open .vpp by double-click",icon:IC.app,fn:showInstallHelp}]),
     {label:"Keyboard shortcuts",icon:IC.keys,k:"?",fn:showShortcuts},
@@ -2638,12 +2816,12 @@ function applyViewOrder(){
   state.entries=vis.concat(rest);
   state.sortKey=null; state.dirty=true;
   refreshAll();
-  toast("Archive order rewritten to match the view");
+  toast("VPP order rewritten to match the view");
 }
 function showShortcuts(){
   openPop(
     '<h3>Keyboard shortcuts</h3><table>'+
-    [["Open archive","Ctrl O"],["Save archive","Ctrl S"],["Filter files","Ctrl F"],["Select all","Ctrl A"],
+    [["Open VPP","Ctrl O"],["Save VPP","Ctrl S"],["Filter files","Ctrl F"],["Select all","Ctrl A"],
      ["Full size preview","Enter"],["Rename","F2"],["Remove selected","Del"],["Reorder file","Alt ↑ / ↓"],
      ["Close / clear","Esc"],["This panel","?"]]
       .map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+
@@ -2651,11 +2829,152 @@ function showShortcuts(){
     $("btnMore")
   );
 }
+function showAbout(){
+  openPop(
+    '<h3>About VPP Forge</h3><ul>'
+    +'<li><b>VPP Forge 1.0</b> · Red Faction VPP workbench</li>'
+    +'<li>Byte-exact VPP v1 writer, verified against retail files. Viewers for TGA, DDS, PCX, VBM, V3M/V3C meshes, VF fonts, RFA animations, levels, tables, and audio.</li>'
+    +'<li>Successor to Descent Manager VPPBUILDER32 + VPVIEW32 · original code by Heiko Herrmann, Descent Network.</li>'
+    +'<li>V3M engine mirrors Redux V3mParser + RF Static Mesh Tools. Format specs: rafalh/rf-reversed.</li>'
+    +'</ul>',
+    $("btnMore")
+  );
+}
+const REPO_URL="https://github.com/RomekRF/VPPForge";
+function menuItems(which){
+  const one=state.sel.size===1;
+  const e=one?byId([...state.sel][0]):null;
+  const sorted=!!state.sortKey;
+  const has=state.entries.length>0;
+  if(which==="file"){
+    const base=[
+      {label:"New VPP",fn:newArchive},
+      {label:"Open VPP…",k:"Ctrl O",fn:openArchiveDialog},
+      {label:"Save VPP",k:"Ctrl S",off:$("btnSave").disabled,fn:()=>saveArchive()},
+      ...(BRIDGE?[{label:"Save a copy as…",off:!has,fn:()=>saveArchive(true)}]:[]),
+      ...(BRIDGE&&state.saveId!=null?[{label:"Show in Explorer",fn:()=>bridgeJson("/reveal?id="+state.saveId).catch(()=>{})}]:[]),
+    ];
+    if(!BRIDGE)return Promise.resolve(base);
+    return bridgeJson("/recents").then(j=>{
+      const rec=(j.list||[]).slice(0,10).map((r2,i)=>({
+        label:((i+1)%10)+"  "+r2.name,
+        fn:()=>bridgeJson("/recent/open?i="+i).then(x=>{
+          if(x.gone){toast("That file no longer exists.",true);return;}
+          bridgeLoad(x.id,x.name);
+        }).catch(()=>toast("Could not open the file",true)),
+      }));
+      return base.concat(["-"],rec.length?rec:[{label:"No recent VPPs",off:true}],
+        ["-",{label:"Exit",fn:()=>{fetch(bridgeUrl("/quit")).catch(()=>{});setTimeout(()=>window.close(),200);}}]);
+    }).catch(()=>base);
+  }
+  if(which==="action"){
+    const canBig=e&&EXPANDABLE.has(TYPE_META[e.tkey].cat);
+    return Promise.resolve([
+      {label:"Open full size",icon:IC.expand,k:"Enter",off:!canBig,fn:()=>openLightbox(e)},
+      "-",
+      {label:"Add files…",fn:()=>$("fileAdd").click()},
+      {label:state.sel.size>1?"Extract "+state.sel.size+" as ZIP":"Extract selected",icon:IC.extract,off:!state.sel.size,fn:()=>extractIds(state.sel)},
+      {label:"Extract all as ZIP",icon:IC.zip,off:!has,fn:()=>extractIds(new Set(state.entries.map(x=>x.id)))},
+      "-",
+      {label:"Rename",icon:IC.rename,k:"F2",off:!one,fn:()=>beginRename([...state.sel][0])},
+      {label:"Move up",icon:IC.up,k:"Alt ↑",off:!one||sorted,fn:()=>moveSelected(-1)},
+      {label:"Move down",icon:IC.down,k:"Alt ↓",off:!one||sorted,fn:()=>moveSelected(1)},
+      {label:state.sel.size>1?"Remove "+state.sel.size+" files":"Remove",icon:IC.remove,k:"Del",off:!state.sel.size,fn:removeSelected},
+      "-",
+      {label:"Select all",icon:IC.all,k:"Ctrl A",off:!has,fn:selectAll},
+    ]);
+  }
+  if(which==="tools"){
+    const {checks}=computeChecks();
+    return Promise.resolve([
+      {label:"Switch theme",fn:()=>setTheme(!document.body.classList.contains("theme-dark"))},
+      "-",
+      {label:"Restore VPP order",icon:IC.order,off:!sorted,fn:()=>{state.sortKey=null;renderRows();}},
+      {label:"Write view order to VPP",icon:IC.order,off:!sorted,fn:applyViewOrder},
+      {label:"VPP checks…",off:!checks.length,fn:()=>{
+        openPop('<h3>VPP checks</h3><ul>'+checks.map(c=>'<li class="'+c[0]+'">'+esc(c[1])+"</li>").join("")+"</ul>",$("btnMore"));
+      }},
+      "-",
+      ...(BRIDGE?[]:[{label:"Install as app…",icon:IC.app,fn:showInstallHelp}]),
+      {label:"Keyboard shortcuts",icon:IC.keys,k:"?",fn:showShortcuts},
+    ]);
+  }
+  return Promise.resolve([
+    {label:"About VPP Forge",fn:showAbout},
+    {label:"VPP Forge on GitHub",fn:()=>window.open(REPO_URL,"_blank")},
+  ]);
+}
+function openMenuFor(btn){
+  const which=btn.dataset.m;
+  menuItems(which).then(items=>{
+    mbOpen=which;
+    document.querySelectorAll("#menubar button").forEach(b=>b.classList.toggle("open",b===btn));
+    const r=btn.getBoundingClientRect();
+    openMenu(r.left,r.bottom+3,items);
+    mbOpen=which; // openMenu path may have cleared it via a stray close
+    btn.classList.add("open");
+  });
+}
+document.querySelectorAll("#menubar button").forEach(b=>{
+  b.addEventListener("mousedown",ev=>{
+    ev.stopPropagation();
+    if(mbOpen===b.dataset.m)closeMenu();
+    else openMenuFor(b);
+  });
+  b.addEventListener("mouseenter",()=>{
+    if(mbOpen&&mbOpen!==b.dataset.m)openMenuFor(b);
+  });
+});
+function sanitizeVppName(nv){
+  nv=(nv||"").trim().replace(/[\\/:*?"<>|]/g,"");
+  if(!nv)return null;
+  if(!/\.vpp$/i.test(nv))nv+=".vpp";
+  if(nv.length>NAME_MAX)nv=nv.slice(0,NAME_MAX-4)+".vpp";
+  return nv;
+}
+function beginDocRename(){
+  if(state.name===null)return;
+  if(BRIDGE&&state.saveId!=null){
+    toast("This name matches the file on disk. Use File · Save a copy as… for a new name.");
+    return;
+  }
+  const chip=$("docChip"),span=chip.querySelector(".fname");
+  const old=state.name;
+  const inp=document.createElement("input");
+  inp.maxLength=NAME_MAX;
+  inp.spellcheck=false;
+  inp.value=old;
+  span.style.display="none";
+  chip.insertBefore(inp,span);
+  inp.focus();
+  const dot=old.lastIndexOf(".");
+  inp.setSelectionRange(0,dot>0?dot:old.length);
+  let done=false;
+  const commit=okv=>{
+    if(done)return;done=true;
+    if(okv){
+      const nv=sanitizeVppName(inp.value);
+      if(nv&&nv!==old)state.name=nv;
+    }
+    inp.remove();
+    span.style.display="";
+    renderChrome();
+  };
+  inp.addEventListener("keydown",ke=>{
+    if(ke.key==="Enter")commit(true);
+    else if(ke.key==="Escape")commit(false);
+    ke.stopPropagation();
+  });
+  inp.addEventListener("blur",()=>commit(true));
+}
+$("docChip").addEventListener("click",ev=>{
+  if(ev.target.classList&&ev.target.classList.contains("fname")&&state.name!==null)beginDocRename();
+});
 $("checksChip").addEventListener("click",()=>{
   const p=$("pop");
   if(p.style.display==="block"){closePop();return;}
   const {checks}=computeChecks();
-  openPop('<h3>Archive checks</h3><ul>'+checks.map(c=>'<li class="'+c[0]+'">'+esc(c[1])+"</li>").join("")+"</ul>",$("checksChip"));
+  openPop('<h3>VPP checks</h3><ul>'+checks.map(c=>'<li class="'+c[0]+'">'+esc(c[1])+"</li>").join("")+"</ul>",$("checksChip"));
 });
 
 /* ================================================================

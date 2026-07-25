@@ -21,12 +21,15 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#define COBJMACROS
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <wincrypt.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <objbase.h>
 typedef SOCKET sock_t;
 #define CLOSESOCK closesocket
 #else
@@ -59,6 +62,11 @@ static char *g_paths[MAX_PATHS]; /* UTF-8 */
 static int g_npaths = 0;
 static char *g_page = NULL; /* html with injected bridge config */
 static size_t g_page_len = 0;
+static volatile int g_quit = 0;
+static char g_recent_path[4096] = "";
+#ifdef _WIN32
+static HANDLE g_browser_proc = NULL;
+#endif
 
 /* ---------------------------------------------------------------- utils -- */
 
@@ -153,6 +161,55 @@ static int token_ok(const char *target) {
     return qget(target, "t", t, sizeof t) && !strcmp(t, g_token);
 }
 
+/* forward decl: plat_fopen is defined in the platform layer below */
+static FILE *plat_fopen(const char *p, const char *m);
+
+/* ---------------------------------------------------------- recents ------ */
+#define RECENT_MAX 10
+static int recents_load(char list[RECENT_MAX][2048]) {
+    FILE *f; int n = 0;
+    if (!g_recent_path[0]) return 0;
+    f = plat_fopen(g_recent_path, "rb");
+    if (!f) return 0;
+    while (n < RECENT_MAX && fgets(list[n], 2048, f)) {
+        size_t l = strlen(list[n]);
+        while (l && (list[n][l-1] == '\n' || list[n][l-1] == '\r')) list[n][--l] = 0;
+        if (l) n++;
+    }
+    fclose(f);
+    return n;
+}
+static void add_recent(const char *path) {
+    char list[RECENT_MAX][2048];
+    int n, i, out;
+    FILE *f;
+    if (!g_recent_path[0] || strlen(path) >= 2048) return;
+    n = recents_load(list);
+    f = plat_fopen(g_recent_path, "wb");
+    if (!f) return;
+    fprintf(f, "%s\n", path);
+    for (i = 0, out = 1; i < n && out < RECENT_MAX; i++) {
+        int same;
+#ifdef _WIN32
+        same = !_stricmp(list[i], path);
+#else
+        same = !strcmp(list[i], path);
+#endif
+        if (!same) { fprintf(f, "%s\n", list[i]); out++; }
+    }
+    fclose(f);
+}
+static void recents_remove(const char *path) {
+    char list[RECENT_MAX][2048];
+    int n = recents_load(list), i;
+    FILE *f = g_recent_path[0] ? plat_fopen(g_recent_path, "wb") : NULL;
+    if (!f) return;
+    for (i = 0; i < n; i++)
+        if (strcmp(list[i], path)) fprintf(f, "%s\n", list[i]);
+    fclose(f);
+}
+
+
 /* ------------------------------------------------------ platform layer --- */
 
 #ifdef _WIN32
@@ -230,6 +287,154 @@ static int plat_dialog_save(char *out_utf8, size_t cap, const char *suggest_utf8
     return 1;
 }
 
+/* ------------------------- self-install (single exe, no bat files) ------ */
+
+static void reg_set_str(HKEY root, const wchar_t *path, const wchar_t *name, const wchar_t *val) {
+    HKEY k;
+    if (RegCreateKeyExW(root, path, 0, NULL, 0, KEY_WRITE, NULL, &k, NULL) == ERROR_SUCCESS) {
+        RegSetValueExW(k, name, 0, REG_SZ, (const BYTE *)val,
+                       (DWORD)((wcslen(val) + 1) * sizeof(wchar_t)));
+        RegCloseKey(k);
+    }
+}
+static void reg_set_dw(HKEY root, const wchar_t *path, const wchar_t *name, DWORD v) {
+    HKEY k;
+    if (RegCreateKeyExW(root, path, 0, NULL, 0, KEY_WRITE, NULL, &k, NULL) == ERROR_SUCCESS) {
+        RegSetValueExW(k, name, 0, REG_DWORD, (const BYTE *)&v, sizeof v);
+        RegCloseKey(k);
+    }
+}
+static void install_dir(wchar_t *out, size_t cap) {
+    wchar_t la[MAX_PATH] = L"";
+    GetEnvironmentVariableW(L"LOCALAPPDATA", la, MAX_PATH);
+    _snwprintf(out, cap - 1, L"%s\\Programs\\VPPForge", la);
+    out[cap - 1] = 0;
+}
+static int is_installed(void) {
+    wchar_t val[MAX_PATH * 2];
+    DWORD sz = sizeof val;
+    if (RegGetValueW(HKEY_CURRENT_USER,
+        L"Software\\Classes\\VPPForge.Archive\\shell\\open\\command",
+        NULL, RRF_RT_REG_SZ, NULL, val, &sz) != ERROR_SUCCESS) return 0;
+    /* value looks like "C:\...\vppforge.exe" "%1" · check the exe exists */
+    if (val[0] == L'"') {
+        wchar_t *e = wcschr(val + 1, L'"');
+        if (e) { *e = 0; return GetFileAttributesW(val + 1) != INVALID_FILE_ATTRIBUTES; }
+    }
+    return 0;
+}
+static void create_start_menu_shortcut(const wchar_t *exe) {
+    wchar_t progs[MAX_PATH], lnk[MAX_PATH * 2];
+    IShellLinkW *sl = NULL;
+    IPersistFile *pf = NULL;
+    if (FAILED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED))) return;
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, progs))) {
+        _snwprintf(lnk, MAX_PATH * 2 - 1, L"%s\\VPP Forge.lnk", progs);
+        lnk[MAX_PATH * 2 - 1] = 0;
+        if (SUCCEEDED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER,
+                                       &IID_IShellLinkW, (void **)&sl))) {
+            IShellLinkW_SetPath(sl, exe);
+            IShellLinkW_SetIconLocation(sl, exe, 0);
+            IShellLinkW_SetDescription(sl, L"Red Faction VPP archive workbench");
+            if (SUCCEEDED(IShellLinkW_QueryInterface(sl, &IID_IPersistFile, (void **)&pf))) {
+                IPersistFile_Save(pf, lnk, TRUE);
+                IPersistFile_Release(pf);
+            }
+            IShellLinkW_Release(sl);
+        }
+    }
+    CoUninitialize();
+}
+static void write_associations(const wchar_t *exe) {
+    wchar_t buf[MAX_PATH * 2 + 16];
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\.vpp", NULL, L"VPPForge.Archive");
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive", NULL, L"Red Faction Archive");
+    _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\",0", exe); buf[MAX_PATH * 2 + 15] = 0;
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive\\DefaultIcon", NULL, buf);
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive\\shell\\open", NULL, L"Open with VPP Forge");
+    _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\" \"%%1\"", exe); buf[MAX_PATH * 2 + 15] = 0;
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive\\shell\\open\\command", NULL, buf);
+}
+static void write_uninstall_entry(const wchar_t *exe, const wchar_t *dir) {
+    const wchar_t *k = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VPPForge";
+    wchar_t buf[MAX_PATH * 2 + 16];
+    reg_set_str(HKEY_CURRENT_USER, k, L"DisplayName", L"VPP Forge");
+    reg_set_str(HKEY_CURRENT_USER, k, L"DisplayVersion", L"1.0.0");
+    reg_set_str(HKEY_CURRENT_USER, k, L"Publisher", L"VPP Forge");
+    reg_set_str(HKEY_CURRENT_USER, k, L"DisplayIcon", exe);
+    reg_set_str(HKEY_CURRENT_USER, k, L"InstallLocation", dir);
+    _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\" /uninstall", exe); buf[MAX_PATH * 2 + 15] = 0;
+    reg_set_str(HKEY_CURRENT_USER, k, L"UninstallString", buf);
+    reg_set_dw(HKEY_CURRENT_USER, k, L"NoModify", 1);
+    reg_set_dw(HKEY_CURRENT_USER, k, L"NoRepair", 1);
+    reg_set_dw(HKEY_CURRENT_USER, k, L"EstimatedSize", 320);
+}
+static int do_install(void) {
+    wchar_t self[MAX_PATH * 2], dir[MAX_PATH * 2], target[MAX_PATH * 2];
+    GetModuleFileNameW(NULL, self, MAX_PATH * 2);
+    install_dir(dir, MAX_PATH * 2);
+    _snwprintf(target, MAX_PATH * 2 - 1, L"%s\\vppforge.exe", dir); target[MAX_PATH * 2 - 1] = 0;
+    SHCreateDirectoryExW(NULL, dir, NULL);
+    if (_wcsicmp(self, target) != 0) {
+        if (!CopyFileW(self, target, FALSE)) {
+            MessageBoxW(NULL, L"Could not copy VPP Forge into place.\nClose other VPP Forge windows and try again.",
+                        L"VPP Forge Setup", MB_ICONERROR);
+            return 0;
+        }
+    }
+    write_associations(target);
+    write_uninstall_entry(target, dir);
+    create_start_menu_shortcut(target);
+    reg_set_dw(HKEY_CURRENT_USER, L"Software\\VPPForge", L"Installed", 1);
+    return 1;
+}
+static void do_uninstall(void) {
+    wchar_t dir[MAX_PATH * 2], progs[MAX_PATH], lnk[MAX_PATH * 2], cmd[MAX_PATH * 5];
+    wchar_t val[64]; DWORD sz = sizeof val;
+    if (MessageBoxW(NULL, L"Remove VPP Forge and its .vpp file association?",
+                    L"Uninstall VPP Forge", MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+    /* only release .vpp if it still points at us */
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Classes\\.vpp", NULL,
+                     RRF_RT_REG_SZ, NULL, val, &sz) == ERROR_SUCCESS &&
+        !wcscmp(val, L"VPPForge.Archive"))
+        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\.vpp");
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive");
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VPPForge");
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\VPPForge");
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, progs))) {
+        _snwprintf(lnk, MAX_PATH * 2 - 1, L"%s\\VPP Forge.lnk", progs); lnk[MAX_PATH * 2 - 1] = 0;
+        DeleteFileW(lnk);
+    }
+    install_dir(dir, MAX_PATH * 2);
+    _snwprintf(cmd, MAX_PATH * 5 - 1,
+        L"cmd /c ping -n 3 127.0.0.1 >nul & rmdir /S /Q \"%s\"", dir);
+    cmd[MAX_PATH * 5 - 1] = 0;
+    { STARTUPINFOW si; PROCESS_INFORMATION pi;
+      memset(&si, 0, sizeof si); si.cb = sizeof si;
+      si.dwFlags = STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE;
+      if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+          CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+      } }
+    MessageBoxW(NULL, L"VPP Forge has been removed.", L"Uninstall VPP Forge", MB_ICONINFORMATION);
+}
+static void maybe_offer_setup(void) {
+    DWORD declined = 0, sz = sizeof declined;
+    if (is_installed()) return;
+    RegGetValueW(HKEY_CURRENT_USER, L"Software\\VPPForge", L"SetupDeclined",
+                 RRF_RT_REG_DWORD, NULL, &declined, &sz);
+    if (declined) return;
+    if (MessageBoxW(NULL,
+        L"Set up VPP Forge on this PC?\n\n"
+        L"\x2022 Double-clicking .vpp files will open them here\n"
+        L"\x2022 Adds a Start Menu entry\n"
+        L"\x2022 Listed in Windows Apps for easy uninstall\n\n"
+        L"Choose No to run without installing (it won't ask again).",
+        L"VPP Forge Setup", MB_YESNO | MB_ICONQUESTION) == IDYES)
+        do_install();
+    else
+        reg_set_dw(HKEY_CURRENT_USER, L"Software\\VPPForge", L"SetupDeclined", 1);
+}
+
 /* App Paths lookup for a Chromium browser; Edge ships with Win10/11 */
 static int find_browser(wchar_t *out, DWORD cap) {
     static const wchar_t *names[2] = { L"chrome.exe", L"msedge.exe" };
@@ -245,6 +450,16 @@ static int find_browser(wchar_t *out, DWORD cap) {
                 return 1;
         }
     return 0;
+}
+
+static void plat_reveal(const char *utf8path) {
+    wchar_t *wp = utf8_to_wide(utf8path);
+    wchar_t args[MAX_PATH * 2 + 16];
+    if (!wp) return;
+    _snwprintf(args, MAX_PATH * 2 + 15, L"/select,\"%s\"", wp);
+    args[MAX_PATH * 2 + 15] = 0;
+    ShellExecuteW(NULL, L"open", L"explorer.exe", args, NULL, SW_SHOWNORMAL);
+    free(wp);
 }
 
 static void remove_tree(const wchar_t *dir); /* fwd */
@@ -294,7 +509,9 @@ static void plat_launch_and_wait(const char *url_utf8) {
     si.cb = sizeof si;
     if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         CloseHandle(pi.hThread);
+        g_browser_proc = pi.hProcess;
         WaitForSingleObject(pi.hProcess, INFINITE);
+        g_browser_proc = NULL;
         CloseHandle(pi.hProcess);
     } else {
         ShellExecuteW(NULL, L"open", wurl, NULL, NULL, SW_SHOWNORMAL);
@@ -321,6 +538,7 @@ static int plat_dialog_save(char *out, size_t cap, const char *suggest) {
     snprintf(out, cap, "%s", p);
     return 1;
 }
+static void plat_reveal(const char *p) { (void)p; }
 
 #endif
 
@@ -486,9 +704,56 @@ static void handle_conn(sock_t s) {
         {   int id = register_path(path);
             char nm[1024], out[1200];
             if (id < 0) { resp_err(s, "500 Too Many Files"); return; }
+            add_recent(path);
             json_escape(nm, sizeof nm, base_name(path));
             snprintf(out, sizeof out, "{\"id\":%d,\"name\":\"%s\"}", id, nm);
             resp_json(s, out); }
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/recents", 8)) {
+        char list[RECENT_MAX][2048];
+        int n = recents_load(list), i;
+        char out[8192];
+        size_t o = 0;
+        o += (size_t)snprintf(out + o, sizeof out - o, "{\"list\":[");
+        for (i = 0; i < n && o + 1200 < sizeof out; i++) {
+            char nm[1024];
+            json_escape(nm, sizeof nm, base_name(list[i]));
+            o += (size_t)snprintf(out + o, sizeof out - o, "%s{\"name\":\"%s\"}", i ? "," : "", nm);
+        }
+        snprintf(out + o, sizeof out - o, "]}");
+        resp_json(s, out);
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/recent/open", 12)) {
+        char v[16], list[RECENT_MAX][2048];
+        int n, i;
+        if (!qget(target, "i", v, sizeof v)) { resp_err(s, "404 Not Found"); return; }
+        i = atoi(v);
+        n = recents_load(list);
+        if (i < 0 || i >= n) { resp_err(s, "404 Not Found"); return; }
+        {   FILE *chk = plat_fopen(list[i], "rb");
+            if (!chk) { recents_remove(list[i]); resp_json(s, "{\"gone\":1}"); return; }
+            fclose(chk); }
+        {   int id = register_path(list[i]);
+            char nm[1024], out[1200];
+            if (id < 0) { resp_err(s, "500 Too Many Files"); return; }
+            add_recent(list[i]);
+            json_escape(nm, sizeof nm, base_name(list[i]));
+            snprintf(out, sizeof out, "{\"id\":%d,\"name\":\"%s\"}", id, nm);
+            resp_json(s, out); }
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/reveal", 7)) {
+        int id = parse_id(target);
+        if (id < 0) { resp_err(s, "404 Not Found"); return; }
+        plat_reveal(g_paths[id]);
+        resp_json(s, "{\"ok\":1}");
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/quit", 5)) {
+        resp_json(s, "{\"ok\":1}");
+        g_quit = 1;
         return;
     }
     if (!strcmp(method, "GET") && !strncmp(target, "/dialog/saveas", 14)) {
@@ -496,6 +761,7 @@ static void handle_conn(sock_t s) {
         char path[4096];
         qget(target, "name", suggest, sizeof suggest);
         if (!plat_dialog_save(path, sizeof path, suggest)) { resp_json(s, "{\"cancel\":1}"); return; }
+        add_recent(path);
         {   int id = register_path(path);
             char nm[1024], out[1200];
             if (id < 0) { resp_err(s, "500 Too Many Files"); return; }
@@ -577,6 +843,15 @@ static void serve_loop(sock_t ls) {
         if (c == INVALID_SOCKET) continue;
         handle_conn(c);
         CLOSESOCK(c);
+        if (g_quit) {
+#ifdef _WIN32
+            if (g_browser_proc) TerminateProcess(g_browser_proc, 0);
+            else ExitProcess(0);
+            return;
+#else
+            exit(0);
+#endif
+        }
     }
 }
 
@@ -598,10 +873,35 @@ int APIENTRY wWinMain(HINSTANCE hi, HINSTANCE hp, LPWSTR cl, int ns) {
     rand_token(g_token, 32);
     argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (argv && argc > 1) {
-        char *u = wide_to_utf8(argv[1]);
-        if (u) { register_path(u); free(u); }
+        if (!_wcsicmp(argv[1], L"/install")) {
+            if (do_install())
+                MessageBoxW(NULL, L"VPP Forge is installed. Double-click any .vpp file to open it.",
+                            L"VPP Forge Setup", MB_ICONINFORMATION);
+            LocalFree(argv);
+            return 0;
+        }
+        if (!_wcsicmp(argv[1], L"/uninstall")) {
+            do_uninstall();
+            LocalFree(argv);
+            return 0;
+        }
+        if (argv[1][0] != L'/') {
+            char *u = wide_to_utf8(argv[1]);
+            if (u) { register_path(u); free(u); }
+        }
     }
     if (argv) LocalFree(argv);
+    {   wchar_t la[MAX_PATH] = L"", dirw[MAX_PATH * 2];
+        char *u;
+        GetEnvironmentVariableW(L"LOCALAPPDATA", la, MAX_PATH);
+        _snwprintf(dirw, MAX_PATH * 2 - 1, L"%s\\VPPForge", la);
+        dirw[MAX_PATH * 2 - 1] = 0;
+        SHCreateDirectoryExW(NULL, dirw, NULL);
+        u = wide_to_utf8(dirw);
+        if (u) { snprintf(g_recent_path, sizeof g_recent_path, "%s\\recent.txt", u); free(u); }
+    }
+    if (g_npaths > 0) add_recent(g_paths[0]);
+    maybe_offer_setup();
     build_page();
     ls = make_listener(&port);
     if (ls == INVALID_SOCKET || port == 0) {
@@ -621,7 +921,10 @@ int main(int argc, char **argv) {
     sock_t ls;
     srand((unsigned)time(NULL) ^ (unsigned)getpid());
     rand_token(g_token, 32);
+    { const char *rp = getenv("VPPFORGE_RECENT_FILE");
+      snprintf(g_recent_path, sizeof g_recent_path, "%s", rp ? rp : "./vppforge_recent.txt"); }
     if (argc > 1) register_path(argv[1]);
+    if (g_npaths > 0) add_recent(g_paths[0]);
     build_page();
     ls = make_listener(&port);
     if (ls == INVALID_SOCKET || port == 0) { fprintf(stderr, "bind failed\n"); return 1; }

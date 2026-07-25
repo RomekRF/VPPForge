@@ -17,12 +17,12 @@ jobs:
         run: >
           x86_64-w64-mingw32-gcc -O2 -municode -mwindows
           src/vppforge.c vppforge_res.o -o vppforge.exe
-          -lws2_32 -lcomdlg32 -ladvapi32 -lshell32 -luser32 -static -s
+          -lws2_32 -lcomdlg32 -ladvapi32 -lshell32 -luser32 -lole32 -luuid -static -s
       - name: Package
         run: |
           mkdir -p dist/VPPForge
           cp vppforge.exe dist/VPPForge/
-          cp "installer/Install VPP Forge.bat" "installer/Uninstall VPP Forge.bat" installer/README.txt dist/VPPForge/
+          cp installer/README.txt dist/VPPForge/
           cd dist && zip -r VPPForge-Desktop-Win64.zip VPPForge
       - uses: actions/upload-artifact@v4
         with:

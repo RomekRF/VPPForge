@@ -11,7 +11,7 @@ exactly like the classic VPPBuilder32 did.
 2. Open the **Actions** tab. The `build-windows` workflow runs on its own
    and finishes in about a minute.
 3. Open the finished run and download **VPPForge-Desktop-Win64** from
-   the Artifacts box. Inside is `vppforge.exe` plus the installer.
+   the Artifacts box. Inside is `vppforge.exe` and a short README. The exe installs itself: first launch offers setup, and it appears in Windows Apps for uninstalling.
 4. To publish a release for your community, push a tag such as `v1.0`;
    the workflow attaches the zip to a GitHub Release automatically.
 
