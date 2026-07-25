@@ -24,6 +24,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <wincrypt.h>
 #include <commdlg.h>
 #include <shellapi.h>
 typedef SOCKET sock_t;
