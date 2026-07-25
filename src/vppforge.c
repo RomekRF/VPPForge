@@ -29,6 +29,7 @@
 #include <commdlg.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 #include <objbase.h>
 typedef SOCKET sock_t;
 #define CLOSESOCK closesocket
@@ -53,7 +54,7 @@ typedef int sock_t;
 #define MAX_PATHS 64
 #define HDR_MAX 16384
 #define BRIDGE_MARK "<!--VPP_BRIDGE-->"
-#define VPP_VERSION "1.5.0"
+#define VPP_VERSION "1.6.0"
 #define WIDEN2(x) L ## x
 #define WIDEN(x) WIDEN2(x)
 #define SETTINGS_MAX 32768
@@ -257,6 +258,7 @@ static int plat_dialog_open(char *out_utf8, size_t cap) {
     OPENFILENAMEW ofn;
     memset(&ofn, 0, sizeof ofn);
     ofn.lStructSize = sizeof ofn;
+    ofn.hwndOwner = GetForegroundWindow();
     ofn.lpstrFilter = L"Red Faction archives (*.vpp)\0*.vpp\0All files (*.*)\0*.*\0";
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH * 2;
@@ -279,6 +281,7 @@ static int plat_dialog_save(char *out_utf8, size_t cap, const char *suggest_utf8
     }
     memset(&ofn, 0, sizeof ofn);
     ofn.lStructSize = sizeof ofn;
+    ofn.hwndOwner = GetForegroundWindow();
     ofn.lpstrFilter = L"Red Faction archives (*.vpp)\0*.vpp\0All files (*.*)\0*.*\0";
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH * 2;
@@ -293,23 +296,31 @@ static int plat_dialog_save(char *out_utf8, size_t cap, const char *suggest_utf8
     return 1;
 }
 
+/* modern Vista+ folder picker; owner keeps it in front of the app window */
 static int plat_dialog_folder(char *out_utf8, size_t cap) {
-    BROWSEINFOW bi;
-    wchar_t disp[MAX_PATH], path[MAX_PATH];
-    LPITEMIDLIST pidl;
+    IFileOpenDialog *fd = NULL;
     int ok = 0;
     HRESULT co = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-    memset(&bi, 0, sizeof bi);
-    bi.pszDisplayName = disp;
-    bi.lpszTitle = L"Choose where to extract";
-    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-    pidl = SHBrowseForFolderW(&bi);
-    if (pidl) {
-        if (SHGetPathFromIDListW(pidl, path)) {
-            char *u = wide_to_utf8(path);
-            if (u) { snprintf(out_utf8, cap, "%s", u); free(u); ok = 1; }
+    if (SUCCEEDED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
+                                   &IID_IFileOpenDialog, (void **)&fd))) {
+        DWORD opts = 0;
+        IFileOpenDialog_GetOptions(fd, &opts);
+        IFileOpenDialog_SetOptions(fd, opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+        IFileOpenDialog_SetTitle(fd, L"Choose where to extract");
+        IFileOpenDialog_SetOkButtonLabel(fd, L"Extract here");
+        if (SUCCEEDED(IFileOpenDialog_Show(fd, GetForegroundWindow()))) {
+            IShellItem *it = NULL;
+            if (SUCCEEDED(IFileOpenDialog_GetResult(fd, &it))) {
+                PWSTR path = NULL;
+                if (SUCCEEDED(IShellItem_GetDisplayName(it, SIGDN_FILESYSPATH, &path))) {
+                    char *u = wide_to_utf8(path);
+                    if (u) { snprintf(out_utf8, cap, "%s", u); free(u); ok = 1; }
+                    CoTaskMemFree(path);
+                }
+                IShellItem_Release(it);
+            }
         }
-        CoTaskMemFree(pidl);
+        IFileOpenDialog_Release(fd);
     }
     if (SUCCEEDED(co)) CoUninitialize();
     return ok;
