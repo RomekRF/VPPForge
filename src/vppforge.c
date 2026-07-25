@@ -54,7 +54,7 @@ typedef int sock_t;
 #define MAX_PATHS 64
 #define HDR_MAX 16384
 #define BRIDGE_MARK "<!--VPP_BRIDGE-->"
-#define VPP_VERSION "1.7.0"
+#define VPP_VERSION "1.8.0"
 #define WIDEN2(x) L ## x
 #define WIDEN(x) WIDEN2(x)
 #define SETTINGS_MAX 32768
@@ -259,10 +259,10 @@ static int plat_dialog_open(char *out_utf8, size_t cap) {
     memset(&ofn, 0, sizeof ofn);
     ofn.lStructSize = sizeof ofn;
     ofn.hwndOwner = GetForegroundWindow();
-    ofn.lpstrFilter = L"Red Faction archives (*.vpp)\0*.vpp\0All files (*.*)\0*.*\0";
+    ofn.lpstrFilter = L"Red Faction VPPs (*.vpp)\0*.vpp\0All files (*.*)\0*.*\0";
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH * 2;
-    ofn.lpstrTitle = L"Open VPP archive";
+    ofn.lpstrTitle = L"Open VPP";
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
     if (!GetOpenFileNameW(&ofn)) return 0;
     { char *u = wide_to_utf8(buf);
@@ -282,10 +282,10 @@ static int plat_dialog_save(char *out_utf8, size_t cap, const char *suggest_utf8
     memset(&ofn, 0, sizeof ofn);
     ofn.lStructSize = sizeof ofn;
     ofn.hwndOwner = GetForegroundWindow();
-    ofn.lpstrFilter = L"Red Faction archives (*.vpp)\0*.vpp\0All files (*.*)\0*.*\0";
+    ofn.lpstrFilter = L"Red Faction VPPs (*.vpp)\0*.vpp\0All files (*.*)\0*.*\0";
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH * 2;
-    ofn.lpstrTitle = L"Save VPP archive";
+    ofn.lpstrTitle = L"Save VPP";
     ofn.lpstrDefExt = L"vpp";
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
     if (!GetSaveFileNameW(&ofn)) return 0;
@@ -374,7 +374,7 @@ static void create_start_menu_shortcut(const wchar_t *exe) {
                                        &IID_IShellLinkW, (void **)&sl))) {
             IShellLinkW_SetPath(sl, exe);
             IShellLinkW_SetIconLocation(sl, exe, 0);
-            IShellLinkW_SetDescription(sl, L"Red Faction VPP archive workbench");
+            IShellLinkW_SetDescription(sl, L"Red Faction VPP workbench");
             if (SUCCEEDED(IShellLinkW_QueryInterface(sl, &IID_IPersistFile, (void **)&pf))) {
                 IPersistFile_Save(pf, lnk, TRUE);
                 IPersistFile_Release(pf);
@@ -387,7 +387,7 @@ static void create_start_menu_shortcut(const wchar_t *exe) {
 static void write_associations(const wchar_t *exe) {
     wchar_t buf[MAX_PATH * 2 + 16];
     reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\.vpp", NULL, L"VPPForge.Archive");
-    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive", NULL, L"Red Faction Archive");
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive", NULL, L"Red Faction VPP");
     _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\",0", exe); buf[MAX_PATH * 2 + 15] = 0;
     reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive\\DefaultIcon", NULL, buf);
     reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive\\shell\\open", NULL, L"Open with VPP Forge");
@@ -939,7 +939,7 @@ static void handle_conn(sock_t s) {
         return;
     }
     if (!strcmp(method, "GET") && !strncmp(target, "/dialog/saveas", 14)) {
-        char suggest[512] = "archive.vpp";
+        char suggest[512] = "new.vpp";
         char path[4096];
         qget(target, "name", suggest, sizeof suggest);
         if (!plat_dialog_save(path, sizeof path, suggest)) { resp_json(s, "{\"cancel\":1}"); return; }

@@ -1,5 +1,5 @@
-VPP FORGE · Red Faction archive workbench
-=========================================
+VPP FORGE · Red Faction VPP workbench
+=====================================
 
 SETUP
   Run vppforge.exe. On first launch it asks whether to set itself up:
@@ -37,10 +37,11 @@ REMOVE
 NOTES
   - Windows 10 or 11, 64-bit. Uses your installed Edge or Chrome as
     the display engine, so there is nothing else to install.
-  - Saving writes the archive back to its original location in place.
+  - Saving writes the VPP back to its original location in place.
   - The writer is byte-exact and verified against retail files.
 
 CREDITS
+  VPP Forge by Romek (RomekRF).
   Successor to Descent Manager VPPBUILDER32 and VPVIEW32,
   original code by Heiko Herrmann, Descent Network.
   V3M mesh engine mirrors Redux V3mParser and RF Static Mesh Tools.

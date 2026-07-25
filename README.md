@@ -1,12 +1,13 @@
 # VPP Forge · Desktop
 
-Native Windows build of VPP Forge, the Red Faction `.vpp` archive workbench.
-Install it, double-click any `.vpp`, and it opens in its own window —
-the modern successor to Descent Manager VPPBUILDER32 and VPVIEW32.
+Native Windows build of VPP Forge, the Red Faction VPP workbench,
+by Romek (RomekRF). Install it, double-click any `.vpp`, and it opens
+in its own window — the modern successor to Descent Manager
+VPPBUILDER32 and VPVIEW32.
 
 ## Features
 
-- Browse, preview, build and save byte-exact VPP v1 archives, verified
+- Browse, preview, build and save byte-exact VPP v1 files, verified
   against the retail game files.
 - Viewers for TGA/DDS/PCX/VBM textures, V3M/V3C meshes, VF fonts,
   RFA animations, levels, tables and audio.
@@ -35,7 +36,7 @@ token-guarded loopback bridge, and opens it in an app-mode window using
 the Edge or Chrome already on every Windows 10/11 machine. The bridge
 gives it what a plain page can never have: the double-clicked file opens
 automatically, Open/Save/Extract use real Windows dialogs, saves write
-the archive back **in place** with an atomic replace, and settings and
+the VPP back **in place** with an atomic replace, and settings and
 recents live in `%LOCALAPPDATA%\VPPForge`.
 
 ## Build locally instead (optional)
