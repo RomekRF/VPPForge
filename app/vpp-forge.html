@@ -3160,11 +3160,19 @@ function showInstallHelp(){
   }
   openPop('<h3>Open .vpp by double-click</h3><ul>'+msg+"</ul>",$("btnMore"));
 }
+let APP_SETTINGS={};
+function saveSettings(){
+  try{
+    const body=JSON.stringify(APP_SETTINGS);
+    if(BRIDGE)fetch(bridgeUrl("/settings"),{method:"POST",body}).catch(()=>{});
+    else localStorage.setItem("vppforge-settings",body);
+  }catch(_){}
+}
 const THEME_ICONS={
   moon:'<svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
   sun:'<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5V5M12 19v2.5M2.5 12H5M19 12h2.5M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg>',
 };
-function setTheme(dark){
+function setTheme(dark,persist){
   document.body.classList.toggle("theme-dark",dark);
   const btn=$("btnTheme");
   btn.innerHTML=dark?THEME_ICONS.sun:THEME_ICONS.moon;
@@ -3172,6 +3180,7 @@ function setTheme(dark){
   btn.title=t;btn.setAttribute("aria-label",t);
   const m=document.querySelector('meta[name="theme-color"]');
   if(m)m.content=dark?"#131211":"#f0efec";
+  if(persist!==false){APP_SETTINGS.dark=dark?1:0;saveSettings();}
 }
 $("btnTheme").addEventListener("click",()=>setTheme(!document.body.classList.contains("theme-dark")));
 
@@ -3213,6 +3222,14 @@ let deferredInstall=null;
 
 refreshAll();
 syncNoDoc();
+(function loadSettings(){
+  const apply=s=>{
+    APP_SETTINGS=(s&&typeof s==="object")?s:{};
+    if(APP_SETTINGS.dark)setTheme(true,false);
+  };
+  if(BRIDGE)bridgeJson("/settings").then(apply).catch(()=>{});
+  else{try{apply(JSON.parse(localStorage.getItem("vppforge-settings")||"{}"));}catch(_){}}
+})();
 if(BRIDGE){
   bridgeJson("/open").then(j=>{if(j&&j.id!=null)bridgeLoad(j.id,j.name);}).catch(()=>{});
 }

@@ -53,6 +53,10 @@ typedef int sock_t;
 #define MAX_PATHS 64
 #define HDR_MAX 16384
 #define BRIDGE_MARK "<!--VPP_BRIDGE-->"
+#define VPP_VERSION "1.1.0"
+#define WIDEN2(x) L ## x
+#define WIDEN(x) WIDEN2(x)
+#define SETTINGS_MAX 32768
 
 static int strncasecmp_portable(const char *a, const char *b, size_t n);
 static const void *memmem_portable(const void *hay, size_t hn, const void *nee, size_t nn);
@@ -64,6 +68,7 @@ static char *g_page = NULL; /* html with injected bridge config */
 static size_t g_page_len = 0;
 static volatile int g_quit = 0;
 static char g_recent_path[4096] = "";
+static char g_settings_path[4096] = "";
 #ifdef _WIN32
 static HANDLE g_browser_proc = NULL;
 #endif
@@ -359,7 +364,7 @@ static void write_uninstall_entry(const wchar_t *exe, const wchar_t *dir) {
     const wchar_t *k = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VPPForge";
     wchar_t buf[MAX_PATH * 2 + 16];
     reg_set_str(HKEY_CURRENT_USER, k, L"DisplayName", L"VPP Forge");
-    reg_set_str(HKEY_CURRENT_USER, k, L"DisplayVersion", L"1.0.0");
+    reg_set_str(HKEY_CURRENT_USER, k, L"DisplayVersion", WIDEN(VPP_VERSION));
     reg_set_str(HKEY_CURRENT_USER, k, L"Publisher", L"VPP Forge");
     reg_set_str(HKEY_CURRENT_USER, k, L"DisplayIcon", exe);
     reg_set_str(HKEY_CURRENT_USER, k, L"InstallLocation", dir);
@@ -417,9 +422,22 @@ static void do_uninstall(void) {
       } }
     MessageBoxW(NULL, L"VPP Forge has been removed.", L"Uninstall VPP Forge", MB_ICONINFORMATION);
 }
+static int installed_version_matches(void) {
+    wchar_t v[64];
+    DWORD sz = sizeof v;
+    if (RegGetValueW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VPPForge",
+        L"DisplayVersion", RRF_RT_REG_SZ, NULL, v, &sz) != ERROR_SUCCESS) return 0;
+    return !wcscmp(v, WIDEN(VPP_VERSION));
+}
 static void maybe_offer_setup(void) {
     DWORD declined = 0, sz = sizeof declined;
-    if (is_installed()) return;
+    if (is_installed()) {
+        /* an older version is installed: refresh it in place so the .vpp
+           association, Start Menu entry and Apps listing point at this build */
+        if (!installed_version_matches()) do_install();
+        return;
+    }
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\VPPForge", L"SetupDeclined",
                  RRF_RT_REG_DWORD, NULL, &declined, &sz);
     if (declined) return;
@@ -629,6 +647,54 @@ static void handle_save(sock_t s, int id, unsigned long long clen,
     resp_json(s, "{\"ok\":1}");
 }
 
+static void handle_settings_get(sock_t s) {
+    char buf[SETTINGS_MAX];
+    size_t n = 0;
+    FILE *f = g_settings_path[0] ? plat_fopen(g_settings_path, "rb") : NULL;
+    if (f) { n = fread(buf, 1, sizeof buf, f); fclose(f); }
+    if (!n) { resp_json(s, "{}"); return; }
+    resp(s, "200 OK", "application/json", buf, n);
+}
+
+static void handle_settings_set(sock_t s, unsigned long long clen,
+                                const char *left, size_t leftn) {
+    char tmp[4200];
+    FILE *f;
+    char buf[8192];
+    unsigned long long got = 0;
+    if (!g_settings_path[0] || clen == 0 || clen > SETTINGS_MAX) {
+        resp_err(s, "500 Cannot Write");
+        return;
+    }
+    snprintf(tmp, sizeof tmp, "%s.new", g_settings_path);
+    f = plat_fopen(tmp, "wb");
+    if (!f) { resp_err(s, "500 Cannot Write"); return; }
+    if (leftn) {
+        size_t take = leftn > clen ? (size_t)clen : leftn;
+        if (fwrite(left, 1, take, f) != take) { fclose(f); remove(tmp); resp_err(s, "500 Write Failed"); return; }
+        got = take;
+    }
+    while (got < clen) {
+        size_t want = sizeof buf;
+        if (clen - got < want) want = (size_t)(clen - got);
+#ifdef _WIN32
+        { int n = recv(s, buf, (int)want, 0);
+          if (n <= 0) { fclose(f); remove(tmp); return; }
+          if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) { fclose(f); remove(tmp); resp_err(s, "500 Write Failed"); return; }
+          got += (unsigned long long)n; }
+#else
+        { ssize_t n = recv(s, buf, want, 0);
+          if (n <= 0) { fclose(f); remove(tmp); return; }
+          if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) { fclose(f); remove(tmp); resp_err(s, "500 Write Failed"); return; }
+          got += (unsigned long long)n; }
+#endif
+    }
+    if (fflush(f) != 0) { fclose(f); remove(tmp); resp_err(s, "500 Write Failed"); return; }
+    fclose(f);
+    if (plat_replace(tmp, g_settings_path) != 0) { remove(tmp); resp_err(s, "500 Replace Failed"); return; }
+    resp_json(s, "{\"ok\":1}");
+}
+
 static int parse_id(const char *target) {
     char v[16];
     int id;
@@ -749,6 +815,15 @@ static void handle_conn(sock_t s) {
         if (id < 0) { resp_err(s, "404 Not Found"); return; }
         plat_reveal(g_paths[id]);
         resp_json(s, "{\"ok\":1}");
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/settings", 9)) {
+        handle_settings_get(s);
+        return;
+    }
+    if (!strcmp(method, "POST") && !strncmp(target, "/settings", 9)) {
+        size_t leftn = got - (size_t)(body - hdr);
+        handle_settings_set(s, clen, body, leftn);
         return;
     }
     if (!strcmp(method, "GET") && !strncmp(target, "/quit", 5)) {
@@ -898,7 +973,11 @@ int APIENTRY wWinMain(HINSTANCE hi, HINSTANCE hp, LPWSTR cl, int ns) {
         dirw[MAX_PATH * 2 - 1] = 0;
         SHCreateDirectoryExW(NULL, dirw, NULL);
         u = wide_to_utf8(dirw);
-        if (u) { snprintf(g_recent_path, sizeof g_recent_path, "%s\\recent.txt", u); free(u); }
+        if (u) {
+            snprintf(g_recent_path, sizeof g_recent_path, "%s\\recent.txt", u);
+            snprintf(g_settings_path, sizeof g_settings_path, "%s\\settings.json", u);
+            free(u);
+        }
     }
     if (g_npaths > 0) add_recent(g_paths[0]);
     maybe_offer_setup();
@@ -923,6 +1002,8 @@ int main(int argc, char **argv) {
     rand_token(g_token, 32);
     { const char *rp = getenv("VPPFORGE_RECENT_FILE");
       snprintf(g_recent_path, sizeof g_recent_path, "%s", rp ? rp : "./vppforge_recent.txt"); }
+    { const char *sp = getenv("VPPFORGE_SETTINGS_FILE");
+      snprintf(g_settings_path, sizeof g_settings_path, "%s", sp ? sp : "./vppforge_settings.json"); }
     if (argc > 1) register_path(argv[1]);
     if (g_npaths > 0) add_recent(g_paths[0]);
     build_page();

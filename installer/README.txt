@@ -5,6 +5,9 @@ SETUP
   Run vppforge.exe. On first launch it asks whether to set itself up:
   say Yes and .vpp files open in VPP Forge on double-click, a Start
   Menu entry appears, and it's listed in Windows Apps.
+  If an older VPP Forge is already installed, there is no prompt:
+  the new version silently updates the installed copy the first time
+  you run it, and .vpp files open with the new version from then on.
   If Windows still opens another program afterwards, right-click a
   .vpp once, choose "Open with", pick VPP Forge, tick "Always".
 
