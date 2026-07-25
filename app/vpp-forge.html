@@ -131,6 +131,8 @@ body.no-doc #toolbar{display:none}
 
 /* ============ workspace ============ */
 #workspace{flex:1; display:flex; min-height:0}
+body.flip #workspace{flex-direction:row-reverse}
+body.flip #sidebar{border-right:none; border-left:1px solid var(--border)}
 #sidebar{
   width:340px; min-width:260px; max-width:560px; flex:none;
   display:flex; flex-direction:column; min-height:0;
@@ -424,6 +426,9 @@ body.dragging.no-doc #dropVeil{display:none}
     <div id="docChip"><span class="dirty"></span><span class="fname empty">No VPP open</span><span id="docStats" style="color:var(--text-3)"></span></div>
   </div>
   <div class="tb-actions">
+    <button class="btn icon" id="btnFlip" title="Swap panel sides" aria-label="Swap panel sides">
+      <svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/><path d="M10 12h4M12 10l2 2-2 2"/></svg>
+    </button>
     <button class="btn icon" id="btnTheme" title="Switch to dark theme" aria-label="Switch theme">
       <svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
     </button>
@@ -3004,6 +3009,7 @@ function menuItems(which){
     const {checks}=computeChecks();
     return Promise.resolve([
       {label:"Switch theme",fn:()=>setTheme(!document.body.classList.contains("theme-dark"))},
+      {label:"Swap panel sides",fn:()=>setFlip(!document.body.classList.contains("flip"))},
       "-",
       {label:"Restore VPP order",icon:IC.order,off:!sorted,fn:()=>{state.sortKey=null;renderRows();}},
       {label:"Write view order to VPP",icon:IC.order,off:!sorted,fn:applyViewOrder},
@@ -3268,10 +3274,12 @@ vdiv.addEventListener("pointerdown",ev=>{
   vdiv.classList.add("drag");
   try{vdiv.setPointerCapture(ev.pointerId);}catch(_){}
   const startX=ev.clientX, startW=sidebar.getBoundingClientRect().width;
-  const move=me=>{sidebar.style.width=Math.min(560,Math.max(260,startW+me.clientX-startX))+"px";refitAll();};
+  const sign=document.body.classList.contains("flip")?-1:1;
+  const move=me=>{sidebar.style.width=Math.min(560,Math.max(260,startW+sign*(me.clientX-startX)))+"px";refitAll();};
   const up=()=>{
     vdiv.classList.remove("drag");vdiv.removeEventListener("pointermove",move);vdiv.removeEventListener("pointerup",up);
-    APP_SETTINGS.sideW=Math.round(sidebar.getBoundingClientRect().width);saveSettings();
+    const w=Math.round(sidebar.getBoundingClientRect().width);
+    if(w>0){APP_SETTINGS.sideW=w;saveSettings();}
   };
   vdiv.addEventListener("pointermove",move);
   vdiv.addEventListener("pointerup",up);
@@ -3293,7 +3301,8 @@ hdiv.addEventListener("pointerdown",ev=>{
   };
   const up=()=>{
     hdiv.classList.remove("drag");hdiv.removeEventListener("pointermove",move);hdiv.removeEventListener("pointerup",up);
-    APP_SETTINGS.treeH=Math.round(typeTree.getBoundingClientRect().height);saveSettings();
+    const h=Math.round(typeTree.getBoundingClientRect().height);
+    if(h>0){APP_SETTINGS.treeH=h;saveSettings();}
   };
   hdiv.addEventListener("pointermove",move);
   hdiv.addEventListener("pointerup",up);
@@ -3344,6 +3353,12 @@ function setTheme(dark,persist){
   if(persist!==false){APP_SETTINGS.dark=dark?1:0;saveSettings();}
 }
 $("btnTheme").addEventListener("click",()=>setTheme(!document.body.classList.contains("theme-dark")));
+function setFlip(on,persist){
+  document.body.classList.toggle("flip",on);
+  if(persist!==false){APP_SETTINGS.flip=on?1:0;saveSettings();}
+  if(typeof refitAll==="function")refitAll();
+}
+$("btnFlip").addEventListener("click",()=>setFlip(!document.body.classList.contains("flip")));
 
 let deferredInstall=null;
 (function setupPwa(){
@@ -3387,6 +3402,7 @@ syncNoDoc();
   const apply=s=>{
     APP_SETTINGS=(s&&typeof s==="object")?s:{};
     if(APP_SETTINGS.dark)setTheme(true,false);
+    if(APP_SETTINGS.flip)setFlip(true,false);
     if(APP_SETTINGS.sideW)sidebar.style.width=Math.min(560,Math.max(260,APP_SETTINGS.sideW))+"px";
     if(APP_SETTINGS.treeH)setTreeH(Math.max(66,APP_SETTINGS.treeH));
     if(APP_SETTINGS.sideW||APP_SETTINGS.treeH)refitAll();
