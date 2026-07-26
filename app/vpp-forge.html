@@ -2152,6 +2152,10 @@ async function tgaEntriesToDds(list){
       await paint();
       try{
         const dec=decodeTga(entryData(e));
+        /* DXT is 4×4 blocks; D3D requires multiples of 4 or texture creation
+           fails in-game (D3D11 fatal error in Alpine/Dash Faction) */
+        if(dec.width%4||dec.height%4)
+          throw new Error(dec.width+"×"+dec.height+" · needs multiples of 4");
         const px=dec.rgba;
         let hasA=false;
         for(let j=3;j<px.length;j+=4){if(px[j]<255){hasA=true;break;}}
@@ -2180,8 +2184,14 @@ async function tgaEntriesToDds(list){
     state.anchor=newSel.size?[...newSel][0]:null;
     refreshAll();
     toast("Replaced "+ok+" TGA with DDS · "+dxt1+" DXT1, "+dxt5+" DXT5"
-      +(failed.length?" · "+failed.length+" failed":"")+" · Ctrl S to save",failed.length>0);
-  }else toast("Could not convert: "+failed[0],true);
+      +(failed.length?" · "+failed.length+" kept as TGA":"")+" · Ctrl S to save",failed.length>0);
+  }else if(failed.length)toast("Nothing converted · "+failed.length+" TGA kept",true);
+  if(failed.length){
+    openPop('<h3>Kept as TGA</h3><ul>'
+      +failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")
+      +'</ul><div style="padding:4px 10px 8px;color:var(--text-2);font-size:11px;max-width:300px">DXT compression works in 4×4 blocks, and the game\'s renderer rejects DDS textures whose width or height is not a multiple of 4. Resize these first (RED Companion can), then convert.</div>',
+      menuBtn("tools"));
+  }
 }
 function download(bytes,name,mime){
   const blob=bytes instanceof Blob?bytes:new Blob([bytes],{type:mime});
@@ -2200,6 +2210,19 @@ function computeChecks(){
     if(e.name.length>NAME_MAX)w.push(["err","Name over "+NAME_MAX+" chars, will be truncated on save: "+e.name]);
     if(/[^\x20-\x7E]/.test(e.name))w.push(["warn","Non-ASCII characters in name: "+e.name]);
     if(e.size===0)w.push(["warn","Zero-byte file: "+e.name]);
+    if(e.tkey==="dds"&&e.size>=128){
+      try{
+        const d=entryData(e);
+        const dv=new DataView(d.buffer,d.byteOffset,d.byteLength);
+        if(dv.getUint32(0,true)===0x20534444){
+          const dh=dv.getUint32(12,true),dw=dv.getUint32(16,true);
+          const fcc=dv.getUint32(84,true);
+          const isDxt=fcc===0x31545844||fcc===0x33545844||fcc===0x35545844;
+          if(isDxt&&(dw%4||dh%4))
+            w.push(["err","DXT size not a multiple of 4 ("+dw+"×"+dh+"), crashes the D3D11 renderer: "+e.name]);
+        }
+      }catch(_){}
+    }
   }
   let total=align2048(SECTOR+64*state.entries.length);
   for(const e of state.entries)total+=align2048(e.size);
