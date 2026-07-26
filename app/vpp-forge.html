@@ -1958,9 +1958,6 @@ function bridgeSaveTo(id,nm,out){
 }
 function saveArchive(forceDialog){
   if(state.name===null||!state.entries.length)return;
-  if(BRIDGE&&state.saveId!=null&&!forceDialog){
-    if(!confirm("Save over "+state.name+"?\n\nThis replaces the VPP on disk."))return;
-  }
   if(!BRIDGE&&state.name==="untitled.vpp"){
     const nv=sanitizeVppName(window.prompt("Name this VPP:","untitled.vpp"));
     if(!nv)return;
