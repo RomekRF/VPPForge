@@ -56,8 +56,8 @@ body{
 svg.i{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
 
 .btn{
-  display:inline-flex; align-items:center; gap:7px;
-  height:26px; padding:0 10px; border-radius:var(--r-s);
+  display:inline-flex; align-items:center; gap:6px;
+  height:23px; padding:0 9px; border-radius:var(--r-s);
   background:transparent; border:1px solid transparent;
   color:var(--text-2); font:500 12px var(--sans); cursor:pointer;
   transition:background .1s,color .1s,border-color .1s;
@@ -70,7 +70,7 @@ svg.i{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;fill:none;stro
 .btn.primary{background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600}
 .btn.primary:hover{background:var(--accent-hover); border-color:var(--accent-hover)}
 .btn.primary:active{background:var(--accent-down)}
-.btn.icon{width:26px; padding:0; justify-content:center}
+.btn.icon{width:24px; padding:0; justify-content:center}
 .btn.sm{height:22px; padding:0 8px; font-size:11.5px}
 .btn.icon.sm{width:22px; padding:0}
 .btn:disabled{opacity:.38; cursor:default; pointer-events:none}
@@ -78,7 +78,7 @@ svg.i{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;fill:none;stro
 
 /* ============ title bar ============ */
 #titlebar{
-  flex:none; height:40px; display:flex;
+  flex:none; height:33px; display:flex;
   align-items:center; justify-content:space-between; gap:10px;
   padding:0 10px; background:var(--surface);
   border-bottom:1px solid var(--border);
@@ -86,7 +86,7 @@ svg.i{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;fill:none;stro
 .tb-left{display:flex; align-items:center; gap:10px; min-width:0; flex:1 1 auto}
 #menubar{display:flex; gap:1px}
 #menubar button{
-  height:24px; padding:0 9px; border:none; background:none; border-radius:4px;
+  height:22px; padding:0 8px; border:none; background:none; border-radius:4px;
   color:var(--text-2); font:400 12px var(--sans); cursor:default; user-select:none;
 }
 #menubar button:hover,#menubar button.open{background:var(--raised); color:var(--text)}
@@ -110,8 +110,8 @@ svg.i{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;fill:none;stro
 
 /* ============ toolbar ============ */
 #toolbar{
-  flex:none; display:flex; flex-wrap:wrap; gap:4px; align-items:center;
-  padding:5px 8px; background:var(--surface);
+  flex:none; display:flex; flex-wrap:wrap; gap:3px; align-items:center;
+  padding:3px 6px; background:var(--surface);
   border-bottom:1px solid var(--border);
 }
 #toolbar .grow{flex:1}
@@ -152,14 +152,14 @@ body.flip #sidebar{border-right:none; border-left:1px solid var(--border)}
 }
 #prevHead{
   display:flex; align-items:center; gap:8px; flex:none;
-  padding:6px 8px 1px; min-width:0;
+  padding:4px 8px 0; min-width:0;
 }
 #prevHead #prevActs{margin-left:auto; display:flex; gap:3px; flex:none}
 
 /* ---- type tree ---- */
-#typeTree{flex:none; max-height:38%; overflow-y:auto; padding:5px 4px; border-bottom:1px solid var(--border)}
+#typeTree{flex:none; max-height:38%; overflow-y:auto; padding:3px 4px; border-bottom:1px solid var(--border)}
 .tnode{
-  display:flex; align-items:center; gap:6px; height:22px; padding:0 6px;
+  display:flex; align-items:center; gap:6px; height:20px; padding:0 6px;
   border-radius:var(--r-s); cursor:pointer; user-select:none;
   font:400 12px var(--sans); color:var(--text);
 }
@@ -239,8 +239,8 @@ canvas.px{image-rendering:pixelated}
 
 /* ============ list column ============ */
 .search{
-  flex:1; min-width:0; display:flex; align-items:center; gap:8px;
-  height:26px; padding:0 8px; border-radius:var(--r-s);
+  flex:1; min-width:0; display:flex; align-items:center; gap:7px;
+  height:23px; padding:0 8px; border-radius:var(--r-s);
   background:var(--surface); border:1px solid var(--border-2);
   transition:border-color .1s;
 }
@@ -253,7 +253,7 @@ canvas.px{image-rendering:pixelated}
 #colHead{
   flex:none; display:grid;
   grid-template-columns:minmax(0,1.4fr) 88px minmax(0,1fr) 70px;
-  gap:0 8px; padding:0 16px 0 8px; height:22px; align-items:center;
+  gap:0 8px; padding:0 16px 0 8px; height:20px; align-items:center;
   border-bottom:1px solid var(--border); background:var(--surface);
   font:600 11px var(--sans); color:var(--text-2);
   user-select:none;
@@ -265,7 +265,7 @@ canvas.px{image-rendering:pixelated}
 #rows{flex:1; overflow-y:auto; min-height:0; overscroll-behavior:contain}
 .row{
   display:grid; grid-template-columns:minmax(0,1.4fr) 88px minmax(0,1fr) 70px;
-  gap:0 8px; align-items:center; height:22px; padding:0 16px 0 8px;
+  gap:0 8px; align-items:center; height:19px; padding:0 16px 0 8px;
   border-left:2px solid transparent; cursor:default; user-select:none;
   font:400 12px var(--sans); color:var(--text);
 }
@@ -294,7 +294,7 @@ body:not(.theme-dark) .tnode.on .cnt{color:rgba(255,255,255,.8)}
 }
 #listFoot{
   flex:none; display:flex; align-items:center; gap:10px;
-  height:22px; padding:0 8px; border-top:1px solid var(--border);
+  height:20px; padding:0 8px; border-top:1px solid var(--border);
   font:400 11px var(--sans); color:var(--text-2); background:var(--surface);
 }
 #listFoot .grow{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -2443,8 +2443,8 @@ function renderRfl(body,e,d){
     }
   }else rows+='<div class="r"><span>Format</span><span>RFL magic missing</span></div>';
   rows+='<div class="r"><span>File size</span><span>'+fmtBytes(d.length)+'</span></div>';
-  body.innerHTML='<div class="card kv"><h3>Level file</h3>'+rows+'</div><div style="height:12px"></div><div class="hexslot"></div>';
-  hexInto(body.querySelector(".hexslot"),d);
+  body.innerHTML='<div class="card kv"><h3>Level file</h3>'+rows+'</div>'
+    +'<div style="padding:10px 2px;color:var(--text-3);font-size:11.5px">Level geometry preview is not supported yet. Extract the file to open it in the RF editor.</div>';
 }
 function renderRfa(body,e,d){
   const h=parseRfaHeader(d);
@@ -3353,12 +3353,24 @@ function setTheme(dark,persist){
   if(persist!==false){APP_SETTINGS.dark=dark?1:0;saveSettings();}
 }
 $("btnTheme").addEventListener("click",()=>setTheme(!document.body.classList.contains("theme-dark")));
+function updateFlipBtn(){
+  const flip=document.body.classList.contains("flip");
+  const b=$("btnFlip");
+  b.innerHTML='<svg class="i" viewBox="0 0 24 24">'+(flip
+    ?'<rect x="3" y="4" width="10" height="16" rx="1.5"/><rect x="15.5" y="4" width="5.5" height="16" rx="1.5" fill="currentColor" stroke="none"/>'
+    :'<rect x="3" y="4" width="5.5" height="16" rx="1.5" fill="currentColor" stroke="none"/><rect x="11" y="4" width="10" height="16" rx="1.5"/>')
+    +"</svg>";
+  const t=flip?"Viewer is on the right · click to move it left":"Viewer is on the left · click to move it right";
+  b.title=t;b.setAttribute("aria-label",t);
+}
 function setFlip(on,persist){
   document.body.classList.toggle("flip",on);
+  updateFlipBtn();
   if(persist!==false){APP_SETTINGS.flip=on?1:0;saveSettings();}
   if(typeof refitAll==="function")refitAll();
 }
 $("btnFlip").addEventListener("click",()=>setFlip(!document.body.classList.contains("flip")));
+updateFlipBtn();
 
 let deferredInstall=null;
 (function setupPwa(){
