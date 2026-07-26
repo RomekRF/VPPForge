@@ -170,10 +170,13 @@ body.flip #sidebar{border-right:none; border-left:1px solid var(--border)}
 .tnode .tact{
   display:none; width:18px; height:18px; flex:none; border:none; border-radius:3px;
   background:none; color:var(--text-3); cursor:pointer; padding:0;
-  align-items:center; justify-content:center;
+  align-items:center; justify-content:center; opacity:.75;
 }
+.tnode .tact.tsel{display:inline-flex}
 .tnode:hover .tact{display:inline-flex}
-.tnode .tact:hover{background:var(--surface-2); color:var(--text)}
+.tnode .tact:hover{background:var(--surface-2); color:var(--text); opacity:1}
+.tnode.on .tact{color:inherit}
+body:not(.theme-dark) .tnode.on .tact:hover{background:rgba(255,255,255,.22); color:#fff}
 .tnode .tact svg{width:12px;height:12px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
 #marquee{position:fixed; z-index:80; border:1px solid var(--accent); background:var(--accent-soft); pointer-events:none; display:none}
 .conn3d{display:flex; flex-wrap:wrap; gap:3px; align-items:center; margin:2px 0 6px; flex:none}
@@ -2218,7 +2221,7 @@ function renderTree(){
   }
   const all=document.createElement("div");
   all.className="tnode all"+(state.typeFilter?"":" on");
-  all.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">All files</span><button class="tact" title="Select all files">'+IC_SEL+'</button><span class="cnt">'+state.entries.length+'</span>';
+  all.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">All files</span><button class="tact tsel" title="Select all files">'+IC_SEL+'</button><span class="cnt">'+state.entries.length+'</span>';
   all.addEventListener("click",()=>{state.typeFilter=null;refreshList();});
   all.querySelector(".tact").addEventListener("click",ev=>{ev.stopPropagation();selectType(null);});
   t.appendChild(all);
@@ -2228,7 +2231,7 @@ function renderTree(){
     d.className="tnode"+(state.typeFilter===k?" on":"");
     d.innerHTML=typeIcon(TYPE_META[k].cat)+'<span class="lbl">'+esc(TYPE_META[k].tree)+'</span>'
       +(k==="tga"?'<button class="tact tdds" title="Replace all TGA with DDS (auto DXT1/DXT5)">'+IC_DDS+'</button>':"")
-      +'<button class="tact" title="Select all of this type">'+IC_SEL+'</button><span class="cnt">'+counts.get(k)+'</span>';
+      +'<button class="tact tsel" title="Select all of this type">'+IC_SEL+'</button><span class="cnt">'+counts.get(k)+'</span>';
     d.addEventListener("click",()=>{state.typeFilter=state.typeFilter===k?null:k;refreshList();});
     d.querySelector(".tact:not(.tdds)").addEventListener("click",ev=>{ev.stopPropagation();selectType(k);});
     const dds=d.querySelector(".tdds");
@@ -2783,7 +2786,8 @@ function render3d(body,e,big){
       const s=new Set([e.id]);
       for(const tn of model.textureNames){const hit=texEntryFor(tn);if(hit)s.add(hit.id);}
       state.sel=s;state.anchor=e.id;
-      renderRows();renderChrome();
+      state.typeFilter=null; /* back to All files so the whole selection is visible */
+      refreshList();
       toast(plural(s.size,"file")+" selected · mesh and its textures");
     });
     conn.appendChild(selAll);
