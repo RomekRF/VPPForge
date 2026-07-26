@@ -2126,29 +2126,53 @@ function encodeDds(w,h,px,wantDXT5){
   }
   return out;
 }
-function tgaEntriesToDds(list){
+async function tgaEntriesToDds(list){
   list=list.filter(e=>e.tkey==="tga");
   if(!list.length){toast("No TGA files to convert",true);return;}
+  if(tgaEntriesToDds._busy)return;
+  tgaEntriesToDds._busy=true;
+  const ov=document.createElement("div");
+  ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
+  ov.innerHTML=
+    '<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);width:min(340px,calc(100% - 48px));padding:18px 20px">'
+    +'<div style="font:600 13px var(--sans);margin-bottom:10px">Converting TGA → DDS</div>'
+    +'<div style="height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden;margin-bottom:8px"><div id="convFill" style="height:100%;width:0%;background:var(--accent);transition:width .15s"></div></div>'
+    +'<div id="convLabel" style="font:400 11px var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">starting…</div>'
+    +'</div>';
+  document.body.appendChild(ov);
+  const fill=ov.querySelector("#convFill"),label=ov.querySelector("#convLabel");
+  const paint=()=>new Promise(r=>setTimeout(r,0));
   let ok=0,dxt1=0,dxt5=0;
   const failed=[],newSel=new Set();
-  for(const e of list){
-    try{
-      const dec=decodeTga(entryData(e));
-      const px=dec.rgba;
-      let hasA=false;
-      for(let i=3;i<px.length;i+=4){if(px[i]<255){hasA=true;break;}}
-      const dds=encodeDds(dec.width,dec.height,px,hasA);
-      const base=e.name.slice(0,e.name.lastIndexOf("."));
-      const nm=base+".dds",low=nm.toLowerCase();
-      const dup=state.entries.findIndex(x=>x!==e&&x.name.toLowerCase()===low);
-      if(dup>=0){decodeCache.delete(state.entries[dup].id);state.entries.splice(dup,1);}
-      const ne={name:nm,size:dds.length,offset:null,data:dds,id:nextId++};
-      probeInfo(ne);
-      state.entries.splice(state.entries.indexOf(e),1,ne);
-      decodeCache.delete(e.id);
-      if(hasA)dxt5++;else dxt1++;
-      ok++;newSel.add(ne.id);
-    }catch(err){failed.push(e.name+" ("+err.message+")");}
+  try{
+    for(let i=0;i<list.length;i++){
+      const e=list[i];
+      label.textContent=(i+1)+" of "+list.length+" · "+e.name;
+      fill.style.width=Math.round(i/list.length*100)+"%";
+      await paint();
+      try{
+        const dec=decodeTga(entryData(e));
+        const px=dec.rgba;
+        let hasA=false;
+        for(let j=3;j<px.length;j+=4){if(px[j]<255){hasA=true;break;}}
+        const dds=encodeDds(dec.width,dec.height,px,hasA);
+        const base=e.name.slice(0,e.name.lastIndexOf("."));
+        const nm=base+".dds",low=nm.toLowerCase();
+        const dup=state.entries.findIndex(x=>x!==e&&x.name.toLowerCase()===low);
+        if(dup>=0){decodeCache.delete(state.entries[dup].id);state.entries.splice(dup,1);}
+        const ne={name:nm,size:dds.length,offset:null,data:dds,id:nextId++};
+        probeInfo(ne);
+        state.entries.splice(state.entries.indexOf(e),1,ne);
+        decodeCache.delete(e.id);
+        if(hasA)dxt5++;else dxt1++;
+        ok++;newSel.add(ne.id);
+      }catch(err){failed.push(e.name+" ("+err.message+")");}
+    }
+    fill.style.width="100%";
+    await paint();
+  }finally{
+    ov.remove();
+    tgaEntriesToDds._busy=false;
   }
   if(ok){
     state.dirty=true;
