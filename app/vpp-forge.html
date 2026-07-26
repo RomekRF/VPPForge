@@ -167,6 +167,24 @@ body.flip #sidebar{border-right:none; border-left:1px solid var(--border)}
 .tnode.on{background:var(--accent-soft); color:var(--text)}
 .tnode .lbl{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .tnode .cnt{font:400 11px var(--mono); color:var(--text-3)}
+.tnode .tact{
+  display:none; width:18px; height:18px; flex:none; border:none; border-radius:3px;
+  background:none; color:var(--text-3); cursor:pointer; padding:0;
+  align-items:center; justify-content:center;
+}
+.tnode:hover .tact{display:inline-flex}
+.tnode .tact:hover{background:var(--surface-2); color:var(--text)}
+.tnode .tact svg{width:12px;height:12px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+#marquee{position:fixed; z-index:80; border:1px solid var(--accent); background:var(--accent-soft); pointer-events:none; display:none}
+.conn3d{display:flex; flex-wrap:wrap; gap:3px; align-items:center; margin:2px 0 6px; flex:none}
+.chip3d{
+  height:18px; padding:0 7px; font:400 10.5px var(--mono); cursor:pointer;
+  border:1px solid var(--border-2); border-radius:9px; background:var(--surface); color:var(--c-model);
+  max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.chip3d:hover{border-color:var(--border-3); background:var(--raised)}
+.chip3d.miss{color:var(--warn); cursor:default; opacity:.8}
+.chip3d.miss:hover{border-color:var(--border-2); background:var(--surface)}
 .tnode.on .cnt{color:var(--text-2)}
 
 /* ---- preview panel ---- */
@@ -262,7 +280,7 @@ canvas.px{image-rendering:pixelated}
 #colHead span:hover{color:var(--text-2)}
 #colHead .sz{justify-self:end}
 #colHead .arr{color:var(--accent-hover); font-size:9px}
-#rows{flex:1; overflow-y:auto; min-height:0; overscroll-behavior:contain}
+#rows{flex:1; overflow-y:auto; min-height:0; overscroll-behavior:contain; position:relative}
 .row{
   display:grid; grid-template-columns:minmax(0,1.4fr) 88px minmax(0,1fr) 70px;
   gap:0 8px; align-items:center; height:19px; padding:0 16px 0 8px;
@@ -2009,6 +2027,135 @@ async function extractToFolder(list){
   }
   toast("Extracted "+plural(n,"file")+" to "+dir);
 }
+/* ---- TGA → DDS conversion · DXT encoder ported from RED Companion ----
+   Bounding-box endpoints with 1/16 inset; DXT1 when fully opaque, DXT5 when
+   any pixel has alpha, matching the companion's auto mode. */
+function dxtQuantize565(r,g,b){
+  const r5=Math.min(31,Math.max(0,Math.round(r*31/255)));
+  const g6=Math.min(63,Math.max(0,Math.round(g*63/255)));
+  const b5=Math.min(31,Math.max(0,Math.round(b*31/255)));
+  return (r5<<11)|(g6<<5)|b5;
+}
+function dxtUnpack565(c){
+  const r5=(c>>11)&0x1F,g6=(c>>5)&0x3F,b5=c&0x1F;
+  return [(r5<<3)|(r5>>2),(g6<<2)|(g6>>4),(b5<<3)|(b5>>2)];
+}
+function dxtColorBlock(block,dest,off){
+  let minR=255,minG=255,minB=255,maxR=0,maxG=0,maxB=0;
+  for(let i=0;i<16;i++){
+    const r=block[i*4],g=block[i*4+1],b=block[i*4+2];
+    if(r<minR)minR=r; if(g<minG)minG=g; if(b<minB)minB=b;
+    if(r>maxR)maxR=r; if(g>maxG)maxG=g; if(b>maxB)maxB=b;
+  }
+  const iR=(maxR-minR)>>4,iG=(maxG-minG)>>4,iB=(maxB-minB)>>4;
+  minR+=iR;minG+=iG;minB+=iB;maxR-=iR;maxG-=iG;maxB-=iB;
+  let c0=dxtQuantize565(maxR,maxG,maxB),c1=dxtQuantize565(minR,minG,minB);
+  if(c0<c1){const t=c0;c0=c1;c1=t;}
+  const [r0,g0,b0]=dxtUnpack565(c0),[r1,g1,b1]=dxtUnpack565(c1);
+  const palR=[r0,r1,Math.round((2*r0+r1)/3),Math.round((r0+2*r1)/3)];
+  const palG=[g0,g1,Math.round((2*g0+g1)/3),Math.round((g0+2*g1)/3)];
+  const palB=[b0,b1,Math.round((2*b0+b1)/3),Math.round((b0+2*b1)/3)];
+  let lo=0,hi=0;
+  for(let i=0;i<16;i++){
+    const r=block[i*4],g=block[i*4+1],b=block[i*4+2];
+    let best=Infinity,bj=0;
+    for(let j=0;j<4;j++){
+      const dr=r-palR[j],dg=g-palG[j],db=b-palB[j];
+      const d=dr*dr+dg*dg+db*db;
+      if(d<best){best=d;bj=j;}
+    }
+    if(i<8)lo|=bj<<(i*2); else hi|=bj<<((i-8)*2);
+  }
+  dest[off]=c0&0xFF;dest[off+1]=(c0>>8)&0xFF;
+  dest[off+2]=c1&0xFF;dest[off+3]=(c1>>8)&0xFF;
+  dest[off+4]=lo&0xFF;dest[off+5]=(lo>>8)&0xFF;
+  dest[off+6]=hi&0xFF;dest[off+7]=(hi>>8)&0xFF;
+}
+function dxtAlphaBlock(block,dest,off){
+  let minA=255,maxA=0;
+  for(let i=0;i<16;i++){const a=block[i*4+3];if(a<minA)minA=a;if(a>maxA)maxA=a;}
+  const a0=maxA,a1=minA;
+  const pal=new Uint8Array(8);
+  pal[0]=a0;pal[1]=a1;
+  if(a0>a1){for(let i=1;i<=6;i++)pal[1+i]=Math.round(((7-i)*a0+i*a1)/7);}
+  else{for(let i=2;i<8;i++)pal[i]=a0;}
+  let lo=0,hi=0;
+  for(let i=0;i<16;i++){
+    const a=block[i*4+3];
+    let best=256,bj=0;
+    for(let j=0;j<8;j++){const d=Math.abs(a-pal[j]);if(d<best){best=d;bj=j;}}
+    if(i<8)lo|=bj<<(i*3); else hi|=bj<<((i-8)*3);
+  }
+  dest[off]=a0;dest[off+1]=a1;
+  dest[off+2]=lo&0xFF;dest[off+3]=(lo>>8)&0xFF;dest[off+4]=(lo>>16)&0xFF;
+  dest[off+5]=hi&0xFF;dest[off+6]=(hi>>8)&0xFF;dest[off+7]=(hi>>16)&0xFF;
+}
+function encodeDds(w,h,px,wantDXT5){
+  if(w<4||h<4)throw new Error("smaller than 4×4");
+  const bw=(w+3)>>2,bh=(h+3)>>2;
+  const blockSize=wantDXT5?16:8;
+  const dataSize=bw*bh*blockSize;
+  const out=new Uint8Array(128+dataSize);
+  const hv=new DataView(out.buffer);
+  hv.setUint32(0,0x20534444,true);
+  hv.setUint32(4,124,true);
+  hv.setUint32(8,0x1|0x2|0x4|0x1000|0x80000,true);
+  hv.setUint32(12,h,true);
+  hv.setUint32(16,w,true);
+  hv.setUint32(20,dataSize,true);
+  hv.setUint32(76,32,true);
+  hv.setUint32(80,0x04,true);
+  out[84]=0x44;out[85]=0x58;out[86]=0x54;out[87]=wantDXT5?0x35:0x31;
+  hv.setUint32(108,0x1000,true);
+  const block=new Uint8Array(64);
+  let dest=128;
+  for(let by=0;by<bh;by++)for(let bx=0;bx<bw;bx++){
+    for(let py=0;py<4;py++){
+      const sy=Math.min(by*4+py,h-1);
+      for(let pxi=0;pxi<4;pxi++){
+        const sx=Math.min(bx*4+pxi,w-1);
+        const s=(sy*w+sx)*4,d=(py*4+pxi)*4;
+        block[d]=px[s];block[d+1]=px[s+1];block[d+2]=px[s+2];block[d+3]=px[s+3];
+      }
+    }
+    if(wantDXT5){dxtAlphaBlock(block,out,dest);dxtColorBlock(block,out,dest+8);dest+=16;}
+    else{dxtColorBlock(block,out,dest);dest+=8;}
+  }
+  return out;
+}
+function tgaEntriesToDds(list){
+  list=list.filter(e=>e.tkey==="tga");
+  if(!list.length){toast("No TGA files to convert",true);return;}
+  let ok=0,dxt1=0,dxt5=0;
+  const failed=[],newSel=new Set();
+  for(const e of list){
+    try{
+      const dec=decodeTga(entryData(e));
+      const px=dec.rgba;
+      let hasA=false;
+      for(let i=3;i<px.length;i+=4){if(px[i]<255){hasA=true;break;}}
+      const dds=encodeDds(dec.width,dec.height,px,hasA);
+      const base=e.name.slice(0,e.name.lastIndexOf("."));
+      const nm=base+".dds",low=nm.toLowerCase();
+      const dup=state.entries.findIndex(x=>x!==e&&x.name.toLowerCase()===low);
+      if(dup>=0){decodeCache.delete(state.entries[dup].id);state.entries.splice(dup,1);}
+      const ne={name:nm,size:dds.length,offset:null,data:dds,id:nextId++};
+      probeInfo(ne);
+      state.entries.splice(state.entries.indexOf(e),1,ne);
+      decodeCache.delete(e.id);
+      if(hasA)dxt5++;else dxt1++;
+      ok++;newSel.add(ne.id);
+    }catch(err){failed.push(e.name+" ("+err.message+")");}
+  }
+  if(ok){
+    state.dirty=true;
+    state.sel=newSel;
+    state.anchor=newSel.size?[...newSel][0]:null;
+    refreshAll();
+    toast("Replaced "+ok+" TGA with DDS · "+dxt1+" DXT1, "+dxt5+" DXT5"
+      +(failed.length?" · "+failed.length+" failed":"")+" · Ctrl S to save",failed.length>0);
+  }else toast("Could not convert: "+failed[0],true);
+}
 function download(bytes,name,mime){
   const blob=bytes instanceof Blob?bytes:new Blob([bytes],{type:mime});
   const a=document.createElement("a");
@@ -2061,17 +2208,31 @@ function renderTree(){
   const counts=new Map();
   for(const e of state.entries)counts.set(e.tkey,(counts.get(e.tkey)||0)+1);
   const order=["rfl","tga","dds","pcx","vbm","v3m","v3c","rfa","mvf","vf","vfx","audio","text","ani","pof","other"];
+  const IC_SEL='<svg viewBox="0 0 24 24"><path d="M4 12.5l5 5 11-11"/></svg>';
+  const IC_DDS='<svg viewBox="0 0 24 24"><path d="M8 3L4 7l4 4M4 7h13M16 21l4-4-4-4M20 17H7"/></svg>';
+  function selectType(k){
+    state.typeFilter=k;
+    state.sel=new Set(state.entries.filter(e=>!k||e.tkey===k).map(e=>e.id));
+    state.anchor=state.sel.size?[...state.sel][0]:null;
+    refreshList();renderPreview();
+  }
   const all=document.createElement("div");
   all.className="tnode all"+(state.typeFilter?"":" on");
-  all.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">All files</span><span class="cnt">'+state.entries.length+'</span>';
+  all.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">All files</span><button class="tact" title="Select all files">'+IC_SEL+'</button><span class="cnt">'+state.entries.length+'</span>';
   all.addEventListener("click",()=>{state.typeFilter=null;refreshList();});
+  all.querySelector(".tact").addEventListener("click",ev=>{ev.stopPropagation();selectType(null);});
   t.appendChild(all);
   for(const k of order){
     if(!counts.has(k))continue;
     const d=document.createElement("div");
     d.className="tnode"+(state.typeFilter===k?" on":"");
-    d.innerHTML=typeIcon(TYPE_META[k].cat)+'<span class="lbl">'+esc(TYPE_META[k].tree)+'</span><span class="cnt">'+counts.get(k)+'</span>';
+    d.innerHTML=typeIcon(TYPE_META[k].cat)+'<span class="lbl">'+esc(TYPE_META[k].tree)+'</span>'
+      +(k==="tga"?'<button class="tact tdds" title="Replace all TGA with DDS (auto DXT1/DXT5)">'+IC_DDS+'</button>':"")
+      +'<button class="tact" title="Select all of this type">'+IC_SEL+'</button><span class="cnt">'+counts.get(k)+'</span>';
     d.addEventListener("click",()=>{state.typeFilter=state.typeFilter===k?null:k;refreshList();});
+    d.querySelector(".tact:not(.tdds)").addEventListener("click",ev=>{ev.stopPropagation();selectType(k);});
+    const dds=d.querySelector(".tdds");
+    if(dds)dds.addEventListener("click",ev=>{ev.stopPropagation();tgaEntriesToDds(state.entries.filter(e=>e.tkey==="tga"));});
     t.appendChild(d);
   }
 }
@@ -2594,7 +2755,41 @@ function render3d(body,e,big){
   const hint=document.createElement("div");
   hint.className="hint3d";hint.textContent="drag rotate · wheel zoom · right-drag pan";
   holder.appendChild(hint);
-  wrapOuter.appendChild(bar);wrapOuter.appendChild(holder);
+  const texEntryFor=tn=>{
+    const st=stemOf(tn);
+    return state.entries.find(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm"||x.tkey==="pcx")&&stemOf(x.name)===st)||null;
+  };
+  wrapOuter.appendChild(bar);
+  if(model.textureNames.length){
+    const conn=document.createElement("div");
+    conn.className="conn3d";
+    for(const tn of model.textureNames){
+      const hit=texEntryFor(tn);
+      const c=document.createElement("button");
+      c.className="chip3d"+(hit?"":" miss");
+      c.textContent=hit?hit.name:tn;
+      c.title=hit?"Used by this mesh · in this VPP · click to view":"Used by this mesh · not in this VPP";
+      if(hit)c.addEventListener("click",()=>{
+        state.sel.clear();state.sel.add(hit.id);state.anchor=hit.id;
+        renderRows();renderChrome();renderPreview();scrollToRow(hit.id);
+      });
+      conn.appendChild(c);
+    }
+    const selAll=document.createElement("button");
+    selAll.className="btn outline sm";
+    selAll.textContent="Select mesh + textures";
+    selAll.title="Select this mesh and every texture it uses that is in this VPP";
+    selAll.addEventListener("click",()=>{
+      const s=new Set([e.id]);
+      for(const tn of model.textureNames){const hit=texEntryFor(tn);if(hit)s.add(hit.id);}
+      state.sel=s;state.anchor=e.id;
+      renderRows();renderChrome();
+      toast(plural(s.size,"file")+" selected · mesh and its textures");
+    });
+    conn.appendChild(selAll);
+    wrapOuter.appendChild(conn);
+  }
+  wrapOuter.appendChild(holder);
   body.appendChild(wrapOuter);
   const loading=document.createElement("div");
   loading.className="placeholder";
@@ -2858,6 +3053,8 @@ function contextItems(){
   return [
     ...(one&&canBig?[{label:"Open full size",icon:IC.expand,k:"Enter",fn:()=>openLightbox(e)}]:[]),
     {label:one?"Extract file…":"Extract "+n+" files…",icon:IC.extract,fn:()=>extractIds(state.sel)},
+    ...((()=>{const t=[...state.sel].map(byId).filter(x=>x&&x.tkey==="tga");
+      return t.length?[{label:t.length===1?"Replace with DDS":"Replace "+t.length+" TGA with DDS",fn:()=>tgaEntriesToDds(t)}]:[];})()),
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
     "-",
     ...(one?[
@@ -3013,6 +3210,8 @@ function menuItems(which){
       "-",
       {label:"Restore VPP order",icon:IC.order,off:!sorted,fn:()=>{state.sortKey=null;renderRows();}},
       {label:"Write view order to VPP",icon:IC.order,off:!sorted,fn:applyViewOrder},
+      "-",
+      {label:"Replace all TGA with DDS",off:!state.entries.some(e2=>e2.tkey==="tga"),fn:()=>tgaEntriesToDds(state.entries.filter(e2=>e2.tkey==="tga"))},
       {label:"VPP checks…",off:!checks.length,fn:()=>{
         openPop('<h3>VPP checks</h3><ul>'+checks.map(c=>'<li class="'+c[0]+'">'+esc(c[1])+"</li>").join("")+"</ul>",menuBtn("tools"));
       }},
@@ -3105,6 +3304,74 @@ $("checksChip").addEventListener("click",()=>{
 /* ================================================================
    List interaction
    ================================================================ */
+/* rubber-band selection: drag in the list to select a range; Ctrl adds */
+(function(){
+  const rowsEl=$("rows");
+  let active=false,started=false,sx=0,syc=0,base=null,raf=0,lastEv=null;
+  const mq=document.createElement("div");
+  mq.id="marquee";
+  document.body.appendChild(mq);
+  const contentY=(ev,rect)=>ev.clientY-rect.top+rowsEl.scrollTop;
+  function update(){
+    raf=0;
+    if(!started||!lastEv)return;
+    const rect=rowsEl.getBoundingClientRect(),ev=lastEv;
+    if(ev.clientY>rect.bottom-10)rowsEl.scrollTop+=Math.min(28,ev.clientY-rect.bottom+10);
+    else if(ev.clientY<rect.top+10)rowsEl.scrollTop-=Math.min(28,rect.top+10-ev.clientY);
+    const cy=contentY(ev,rect);
+    const y0=Math.min(syc,cy),y1=Math.max(syc,cy);
+    const x0=Math.max(rect.left,Math.min(sx,ev.clientX));
+    const x1=Math.min(rect.right,Math.max(sx,ev.clientX));
+    const dy0=Math.max(rect.top,y0-rowsEl.scrollTop+rect.top);
+    const dy1=Math.min(rect.bottom,y1-rowsEl.scrollTop+rect.top);
+    mq.style.display="block";
+    mq.style.left=x0+"px";
+    mq.style.top=dy0+"px";
+    mq.style.width=Math.max(0,x1-x0)+"px";
+    mq.style.height=Math.max(0,dy1-dy0)+"px";
+    const sel=new Set(base);
+    for(const r of rowsEl.children){
+      if(!r.dataset||!r.dataset.id)continue;
+      const t=r.offsetTop,b=t+r.offsetHeight;
+      if(b>y0&&t<y1)sel.add(+r.dataset.id);
+    }
+    if(sel.size!==state.sel.size||[...sel].some(id=>!state.sel.has(id))){
+      state.sel=sel;
+      renderRows();renderChrome();
+    }
+  }
+  rowsEl.addEventListener("pointerdown",ev=>{
+    if(ev.button!==0||ev.shiftKey)return;
+    active=true;started=false;lastEv=null;
+    sx=ev.clientX;
+    syc=contentY(ev,rowsEl.getBoundingClientRect());
+    base=(ev.ctrlKey||ev.metaKey)?new Set(state.sel):new Set();
+  });
+  window.addEventListener("pointermove",ev=>{
+    if(!active)return;
+    lastEv=ev;
+    if(!started){
+      if(Math.abs(ev.clientX-sx)+Math.abs(contentY(ev,rowsEl.getBoundingClientRect())-syc)<6)return;
+      started=true;
+    }
+    if(!raf)raf=requestAnimationFrame(update);
+  });
+  window.addEventListener("pointerup",()=>{
+    if(!active)return;
+    active=false;
+    if(raf){cancelAnimationFrame(raf);raf=0;}
+    if(started){
+      update(); /* apply the final drag position even if the last frame never painted */
+      started=false;
+      mq.style.display="none";
+      if(state.sel.size&&(state.anchor==null||!state.sel.has(state.anchor)))state.anchor=[...state.sel][0];
+      renderPreview();
+      const swallow=ev=>{ev.stopPropagation();};
+      window.addEventListener("click",swallow,{capture:true,once:true});
+      setTimeout(()=>window.removeEventListener("click",swallow,{capture:true}),0);
+    }
+  });
+})();
 $("rows").addEventListener("click",ev=>{
   const r=ev.target.closest(".row");
   if(!r)return;
