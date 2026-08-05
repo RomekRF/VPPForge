@@ -54,7 +54,7 @@ typedef int sock_t;
 #define MAX_PATHS 64
 #define HDR_MAX 16384
 #define BRIDGE_MARK "<!--VPP_BRIDGE-->"
-#define VPP_VERSION "1.13.0"
+#define VPP_VERSION "1.14.0"
 #define WIDEN2(x) L ## x
 #define WIDEN(x) WIDEN2(x)
 #define SETTINGS_MAX 32768
@@ -249,6 +249,13 @@ static FILE *plat_fopen(const char *utf8, const char *mode) {
 static int plat_replace(const char *tmp_utf8, const char *final_utf8) {
     wchar_t *a = utf8_to_wide(tmp_utf8), *b = utf8_to_wide(final_utf8);
     BOOL ok = (a && b) ? MoveFileExW(a, b, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED) : FALSE;
+    free(a); free(b);
+    return ok ? 0 : -1;
+}
+
+static int plat_copy(const char *src_utf8, const char *dst_utf8) {
+    wchar_t *a = utf8_to_wide(src_utf8), *b = utf8_to_wide(dst_utf8);
+    BOOL ok = (a && b) ? CopyFileW(a, b, FALSE) : FALSE;
     free(a); free(b);
     return ok ? 0 : -1;
 }
@@ -581,6 +588,21 @@ static void plat_launch_and_wait(const char *url_utf8) {
 
 static FILE *plat_fopen(const char *p, const char *m) { return fopen(p, m); }
 static int plat_replace(const char *tmp, const char *fin) { return rename(tmp, fin); }
+static int plat_copy(const char *src, const char *dst) {
+    FILE *i = fopen(src, "rb"), *o = NULL;
+    char buf[65536];
+    size_t n;
+    int rc = -1;
+    if (i) o = fopen(dst, "wb");
+    if (i && o) {
+        rc = 0;
+        while ((n = fread(buf, 1, sizeof buf, i)) > 0)
+            if (fwrite(buf, 1, n, o) != n) { rc = -1; break; }
+    }
+    if (i) fclose(i);
+    if (o) fclose(o);
+    return rc;
+}
 static int plat_dialog_open(char *out, size_t cap) {
     const char *p = getenv("VPPFORGE_TEST_OPEN");
     if (!p) return 0;
@@ -656,9 +678,11 @@ static void serve_data(sock_t s, int id) {
     fclose(f);
 }
 
-static void handle_save(sock_t s, int id, unsigned long long clen,
+static void handle_save(sock_t s, int id, const char *target,
+                        unsigned long long clen,
                         const char *left, size_t leftn) {
     char tmp[4096];
+    char bakflag[8];
     FILE *f;
     char buf[65536];
     unsigned long long got = 0;
@@ -687,6 +711,16 @@ static void handle_save(sock_t s, int id, unsigned long long clen,
     }
     if (fflush(f) != 0) { fclose(f); remove(tmp); resp_err(s, "500 Write Failed"); return; }
     fclose(f);
+    /* bak=1: keep a one-time backup of the original before the first overwrite */
+    if (qget(target, "bak", bakflag, sizeof bakflag) && !strcmp(bakflag, "1")) {
+        FILE *chk = plat_fopen(g_paths[id], "rb");
+        if (chk) {
+            char bak[4200];
+            fclose(chk);
+            snprintf(bak, sizeof bak, "%s.bak", g_paths[id]);
+            plat_copy(g_paths[id], bak);
+        }
+    }
     if (plat_replace(tmp, g_paths[id]) != 0) { remove(tmp); resp_err(s, "500 Replace Failed"); return; }
     resp_json(s, "{\"ok\":1}");
 }
@@ -854,7 +888,7 @@ static void handle_conn(sock_t s) {
         int id = parse_id(target);
         size_t leftn = got - (size_t)(body - hdr);
         if (id < 0) { resp_err(s, "404 Not Found"); return; }
-        handle_save(s, id, clen, body, leftn);
+        handle_save(s, id, target, clen, body, leftn);
         return;
     }
     if (!strcmp(method, "GET") && !strncmp(target, "/dialog/open", 12)) {

@@ -1875,6 +1875,7 @@ function loadArchive(name,buf){
   state.entries=parsed.entries.map(e=>({name:e.name,size:e.size,offset:e.offset,data:null,id:nextId++}));
   state.dirty=false; state.sel.clear(); state.sortKey=null; state.filter=""; state.typeFilter=null;
   decodeCache.clear();
+  undoStack.length=0; redoStack.length=0;
   $("search").value="";
   for(const e of state.entries)probeInfo(e);
   if(state.entries.length){state.sel.add(state.entries[0].id);state.anchor=state.entries[0].id;}
@@ -1888,13 +1889,44 @@ function newArchive(){
   state.name="untitled.vpp"; state.srcBytes=null; state.entries=[]; state.saveId=null;
   state.dirty=false; state.sel.clear(); state.sortKey=null; state.filter=""; state.typeFilter=null;
   decodeCache.clear();
+  undoStack.length=0; redoStack.length=0;
   $("search").value="";
   refreshAll();
+}
+/* ---- undo / redo: shallow snapshots of the entry list (data buffers shared) */
+const undoStack=[],redoStack=[];
+const snapEntries=()=>state.entries.map(e=>({...e}));
+function pushUndoSnap(snap){
+  undoStack.push(snap);
+  if(undoStack.length>50)undoStack.shift();
+  redoStack.length=0;
+}
+function pushUndo(){pushUndoSnap(snapEntries());}
+function applySnap(s){
+  state.entries=s.map(e=>({...e}));
+  state.sel=new Set([...state.sel].filter(id=>state.entries.some(e=>e.id===id)));
+  if(state.anchor!=null&&!state.entries.some(e=>e.id===state.anchor))state.anchor=null;
+  state.dirty=true;
+  decodeCache.clear();
+  refreshAll();
+}
+function undo(){
+  if(!undoStack.length){toast("Nothing to undo");return;}
+  redoStack.push(snapEntries());
+  applySnap(undoStack.pop());
+  toast("Undid last change");
+}
+function redo(){
+  if(!redoStack.length){toast("Nothing to redo");return;}
+  undoStack.push(snapEntries());
+  applySnap(redoStack.pop());
+  toast("Redid change");
 }
 function addFiles(fileList){
   if(!fileList.length)return;
   if(state.name===null){state.name="untitled.vpp";state.entries=[];}
   Promise.all([...fileList].map(f=>f.arrayBuffer().then(ab=>({f,ab})))).then(list=>{
+    const pre=snapEntries();
     let added=0,replaced=0;const skipped=[];
     let lastId=null;
     for(const {f,ab} of list){
@@ -1906,6 +1938,7 @@ function addFiles(fileList){
       else{const e={name:nm,size:ab.byteLength,offset:null,data:new Uint8Array(ab),id:nextId++};probeInfo(e);state.entries.push(e);added++;lastId=e.id;}
     }
     if(added||replaced){
+      pushUndoSnap(pre);
       state.dirty=true;
       if(lastId!=null){state.sel.clear();state.sel.add(lastId);state.anchor=lastId;}
     }
@@ -1920,6 +1953,7 @@ function addFiles(fileList){
 }
 function removeSelected(){
   if(!state.sel.size)return;
+  pushUndo();
   const n=state.sel.size;
   for(const id of state.sel)decodeCache.delete(id);
   state.entries=state.entries.filter(e=>!state.sel.has(e.id));
@@ -1927,12 +1961,42 @@ function removeSelected(){
   refreshAll();
   toast(plural(n,"file")+" removed");
 }
+function copySelectedNames(){
+  if(!state.sel.size)return;
+  const names=state.entries.filter(e=>state.sel.has(e.id)).map(e=>e.name).join("\n");
+  navigator.clipboard.writeText(names)
+    .then(()=>toast("Copied "+plural(state.sel.size,"name")))
+    .catch(()=>toast("Clipboard unavailable",true));
+}
+function duplicateSelected(){
+  if(!state.sel.size)return;
+  pushUndo();
+  const list=state.entries.filter(e=>state.sel.has(e.id));
+  const newSel=new Set();
+  for(const e of list){
+    const dot=e.name.lastIndexOf(".");
+    const stem=dot>0?e.name.slice(0,dot):e.name,ext=dot>0?e.name.slice(dot):"";
+    let nm,i=1;
+    do{nm=stem+" copy"+(i>1?" "+i:"")+ext;i++;}while(state.entries.some(x=>x.name.toLowerCase()===nm.toLowerCase()));
+    if(nm.length>NAME_MAX){toast("Name too long, skipped: "+nm,true);continue;}
+    const ne={name:nm,size:e.size,offset:null,data:new Uint8Array(entryData(e)),id:nextId++};
+    probeInfo(ne);
+    state.entries.splice(state.entries.indexOf(e)+1,0,ne);
+    newSel.add(ne.id);
+  }
+  if(newSel.size){
+    state.sel=newSel;state.anchor=[...newSel][0];state.dirty=true;
+    refreshAll();
+    toast(plural(newSel.size,"file")+" duplicated");
+  }
+}
 function moveSelected(dir){
   if(state.sel.size!==1||state.sortKey)return;
   const id=[...state.sel][0];
   const i=state.entries.findIndex(e=>e.id===id);
   const j=i+dir;
   if(j<0||j>=state.entries.length)return;
+  pushUndo();
   [state.entries[i],state.entries[j]]=[state.entries[j],state.entries[i]];
   state.dirty=true;
   refreshAll();
@@ -1946,17 +2010,22 @@ function commitSaved(out,nm){
   if(nm)state.name=nm;
   refreshAll();
 }
-function bridgeSaveTo(id,nm,out){
-  return fetch(bridgeUrl("/save?id="+id),{method:"POST",body:out})
+const bakDone=new Set(); /* one .bak per file per session, made on first overwrite */
+let autosaveTimer=0;
+const autosaveOn=()=>(APP_SETTINGS.autosave??1)===1;
+function bridgeSaveTo(id,nm,out,quiet){
+  const bak=!bakDone.has(id);
+  return fetch(bridgeUrl("/save?id="+id+(bak?"&bak=1":"")),{method:"POST",body:out})
     .then(r=>{if(!r.ok)throw 0;return r.json();})
     .then(()=>{
+      bakDone.add(id);
       state.saveId=id;
       commitSaved(out,nm);
-      toast("Saved "+state.name+" · "+fmtBytes(out.length));
+      if(!quiet)toast("Saved "+state.name+" · "+fmtBytes(out.length));
     })
     .catch(()=>toast("Save failed. Is the file writable?",true));
 }
-function saveArchive(forceDialog){
+function saveArchive(forceDialog,quiet){
   if(state.name===null||!state.entries.length)return;
   if(!BRIDGE&&state.name==="untitled.vpp"){
     const nv=sanitizeVppName(window.prompt("Name this VPP:","untitled.vpp"));
@@ -1969,7 +2038,7 @@ function saveArchive(forceDialog){
   catch(err){ toast(err.message,true); return; }
   const nm=state.name.toLowerCase().endsWith(".vpp")?state.name:state.name+".vpp";
   if(BRIDGE){
-    if(state.saveId!=null&&!forceDialog){bridgeSaveTo(state.saveId,null,out);return;}
+    if(state.saveId!=null&&!forceDialog){bridgeSaveTo(state.saveId,null,out,quiet);return;}
     bridgeJson("/dialog/saveas?name="+encodeURIComponent(nm)).then(j=>{
       if(j.cancel)return;
       bridgeSaveTo(j.id,j.name,out);
@@ -2139,6 +2208,7 @@ async function tgaEntriesToDds(list){
   document.body.appendChild(ov);
   const fill=ov.querySelector("#convFill"),label=ov.querySelector("#convLabel");
   const paint=()=>new Promise(r=>setTimeout(r,0));
+  const pre=snapEntries();
   let ok=0,dxt1=0,dxt5=0;
   const failed=[],newSel=new Set();
   try{
@@ -2176,6 +2246,7 @@ async function tgaEntriesToDds(list){
     tgaEntriesToDds._busy=false;
   }
   if(ok){
+    pushUndoSnap(pre);
     state.dirty=true;
     state.sel=newSel;
     state.anchor=newSel.size?[...newSel][0]:null;
@@ -2341,7 +2412,18 @@ function renderChrome(){
   const filtered=state.typeFilter||state.filter;
   $("footStats").textContent=state.entries.length?
     (filtered?vis+" of "+state.entries.length+" shown · ":plural(state.entries.length,"file")+" · ")+fmtBytes(payload)+" payload":"";
-  $("footSel").textContent=state.sel.size>1?state.sel.size+" selected":"";
+  if(state.sel.size>1){
+    let ssz=0;
+    for(const e of state.entries)if(state.sel.has(e.id))ssz+=e.size;
+    $("footSel").textContent=state.sel.size+" selected · "+fmtBytes(ssz);
+  }else $("footSel").textContent="";
+  $("btnSave").title=(BRIDGE&&state.saveId!=null&&autosaveOn())?"Autosave is on · changes save automatically":"";
+  if(BRIDGE&&state.saveId!=null&&state.dirty&&autosaveOn()&&!autosaveTimer){
+    autosaveTimer=setTimeout(()=>{
+      autosaveTimer=0;
+      if(state.dirty&&autosaveOn()&&BRIDGE&&state.saveId!=null)saveArchive(false,true);
+    },1500);
+  }
   const cc=$("checksChip");
   if(checks.length){
     cc.style.display="inline-flex";
@@ -3104,6 +3186,8 @@ function contextItems(){
     ...((()=>{const t=[...state.sel].map(byId).filter(x=>x&&x.tkey==="tga");
       return t.length?[{label:t.length===1?"Replace with DDS":"Replace "+t.length+" TGA with DDS",fn:()=>tgaEntriesToDds(t)}]:[];})()),
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
+    {label:one?"Duplicate":"Duplicate "+n+" files",fn:duplicateSelected},
+    {label:one?"Copy name":"Copy "+n+" names",fn:copySelectedNames},
     "-",
     ...(one?[
       {label:"Move up",icon:IC.up,k:"Alt ↑",off:sorted,fn:()=>moveSelected(-1)},
@@ -3121,6 +3205,7 @@ function selectAll(){
 }
 function applyViewOrder(){
   if(!state.sortKey)return;
+  pushUndo();
   const vis=visible().map(x=>x.e);
   const rest=state.entries.filter(e=>!vis.includes(e));
   state.entries=vis.concat(rest);
@@ -3131,7 +3216,8 @@ function applyViewOrder(){
 function showShortcuts(){
   openPop(
     '<h3>Keyboard shortcuts</h3><table>'+
-    [["Open VPP","Ctrl O"],["Save VPP","Ctrl S"],["Filter files","Ctrl F"],["Select all","Ctrl A"],
+    [["Open VPP","Ctrl O"],["Save VPP","Ctrl S"],["Undo / Redo","Ctrl Z / Y"],["Duplicate","Ctrl D"],
+     ["Filter files","Ctrl F"],["Select all","Ctrl A"],
      ["Full size preview","Enter"],["Rename","F2"],["Remove selected","Del"],["Reorder file","Alt ↑ / ↓"],
      ["Close / clear","Esc"],["This panel","?"]]
       .map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+
@@ -3236,6 +3322,9 @@ function menuItems(which){
   if(which==="action"){
     const canBig=e&&EXPANDABLE.has(TYPE_META[e.tkey].cat);
     return Promise.resolve([
+      {label:"Undo",k:"Ctrl Z",off:!undoStack.length,fn:undo},
+      {label:"Redo",k:"Ctrl Y",off:!redoStack.length,fn:redo},
+      "-",
       {label:"Open full size",icon:IC.expand,k:"Enter",off:!canBig,fn:()=>openLightbox(e)},
       "-",
       {label:"Add files…",fn:()=>$("fileAdd").click()},
@@ -3255,6 +3344,11 @@ function menuItems(which){
     return Promise.resolve([
       {label:"Switch theme",fn:()=>setTheme(!document.body.classList.contains("theme-dark"))},
       {label:"Swap panel sides",fn:()=>setFlip(!document.body.classList.contains("flip"))},
+      {label:"Autosave · "+(autosaveOn()?"on":"off"),fn:()=>{
+        APP_SETTINGS.autosave=autosaveOn()?0:1;saveSettings();
+        toast(autosaveOn()?"Autosave on · opened VPPs save automatically":"Autosave off · save with Ctrl S");
+        renderChrome();
+      }},
       "-",
       {label:"Restore VPP order",icon:IC.order,off:!sorted,fn:()=>{state.sortKey=null;renderRows();}},
       {label:"Write view order to VPP",icon:IC.order,off:!sorted,fn:applyViewOrder},
@@ -3477,7 +3571,7 @@ function beginRename(id){
       const nv=inp.value.trim();
       if(nv&&nv!==old){
         if(state.entries.some(x=>x!==e&&x.name.toLowerCase()===nv.toLowerCase()))toast("Another entry already uses that name.",true);
-        else{e.name=nv;state.dirty=true;decodeCache.delete(e.id);probeInfo(e);}
+        else{pushUndo();e.name=nv;state.dirty=true;decodeCache.delete(e.id);probeInfo(e);}
       }
     }
     refreshAll();
@@ -3524,6 +3618,9 @@ document.addEventListener("keydown",ev=>{
   else if(mod&&k==="s"){ev.preventDefault();if(!$("btnSave").disabled)saveArchive();}
   else if(mod&&k==="f"){ev.preventDefault();$("search").focus();$("search").select();}
   else if(mod&&k==="a"){ev.preventDefault();selectAll();}
+  else if(mod&&k==="z"&&!ev.shiftKey){ev.preventDefault();undo();}
+  else if(mod&&(k==="y"||(k==="z"&&ev.shiftKey))){ev.preventDefault();redo();}
+  else if(mod&&k==="d"){ev.preventDefault();if(state.sel.size)duplicateSelected();}
   else if(ev.key==="Delete"&&state.sel.size)removeSelected();
   else if(ev.key==="F2"&&state.sel.size===1)beginRename([...state.sel][0]);
   else if(ev.key==="Enter"&&state.sel.size===1){
