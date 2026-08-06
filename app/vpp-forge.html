@@ -2396,9 +2396,10 @@ const RFA=(function(){
     const numMorphVerts=dv.getInt32(28,true);
     const numMorphKeys=dv.getInt32(32,true);
     if(numBones<0||numBones>50)throw new Error("Bad bone count "+numBones);
-    /* header: 40 fixed + quat(16) + vec3(12) + 2 offsets(8) = 76, then bone offsets */
+    /* header: 44 fixed + total_rotation(16) + total_translation(12) + 2 offsets(8) = 80,
+       then the per-bone absolute offsets */
     const boneOffsets=[];
-    for(let i=0;i<numBones;i++)boneOffsets.push(dv.getInt32(76+i*4,true));
+    for(let i=0;i<numBones;i++)boneOffsets.push(dv.getInt32(80+i*4,true));
     const bones=[];
     for(let i=0;i<numBones;i++){
       let p=boneOffsets[i];
@@ -3326,7 +3327,7 @@ function renderContent(body,e,big,acts){
           const h=parseRfaHeader(d);
           if(h&&h.bones>0)host=state.entries.find(x=>{
             if(x.tkey!=="v3c")return false;
-            try{const m=getDecoded(x,"v3m");return m.bones&&m.bones.length===h.bones;}
+            try{const m=getDecoded(x,"v3m");return m.bones&&m.bones.length>=h.bones;}
             catch(_){return false;}
           })||null;
         }catch(_){}
@@ -3638,9 +3639,10 @@ function render3d(body,e,big,r3opts){
   const model=getDecoded(e,isVfx?"vfx":"v3m");
   /* character rig: RFAs in this VPP whose bone count matches the skeleton */
   const isChar=!isVfx&&model.isSkeletal&&model.bones&&model.bones.length>0;
+  /* animations may drive fewer bones than the rig has (bones map by index) */
   const rfaList=isChar?state.entries.filter(x=>{
     if(x.tkey!=="rfa"&&x.tkey!=="mvf")return false;
-    try{const h=parseRfaHeader(entryData(x));return h&&h.bones===model.bones.length;}
+    try{const h=parseRfaHeader(entryData(x));return h&&h.bones>0&&h.bones<=model.bones.length;}
     catch(_){return false;}
   }):[];
   const st0=computeModelStats(model,0);
