@@ -1294,6 +1294,7 @@ function wavToPlayable(d){
             header,
             submeshes: [],
             cspheres: [],
+            bones: [],          // {name, quat[4], pos[3], parent} in RF model space
             textureNames: [],   // unique, in first-seen order
         };
 
@@ -1314,8 +1315,19 @@ function wavToPlayable(d){
                     radius: r.f32(),
                 });
                 // Body is 44 bytes; trust our reads over secSize.
+            } else if (secType === SEC_BONE) {
+                // v3d_bones: num_bones, then {name[24], quat xyzw, pos, parent}
+                const nb = r.i32();
+                for (let b = 0; b < nb; b++) {
+                    model.bones.push({
+                        name:   r.fixedStr(24),
+                        quat:   [r.f32(), r.f32(), r.f32(), r.f32()],
+                        pos:    [r.f32(), r.f32(), r.f32()],
+                        parent: r.i32(),
+                    });
+                }
             } else {
-                // BONE and anything else: skip via size when possible.
+                // anything else: skip via size when possible.
                 if (secSize > 0 && bodyStart + secSize <= r.len) {
                     r.pos = bodyStart + secSize;
                 } else {
@@ -1482,7 +1494,22 @@ function wavToPlayable(d){
 
             dp = align16(dp + info.sameAlloc);
 
+            // v3d_vertex_bones: per vertex {weights u8[4], bones u8[4]}
+            let boneWeights = null, boneIndices = null;
             if (info.wiAlloc > 0) {
+                boneWeights = new Float32Array(numPos * 4);
+                boneIndices = new Uint16Array(numPos * 4);
+                for (let i = 0; i < numPos; i++) {
+                    const o = dp + i * 8;
+                    let sum = 0;
+                    for (let k = 0; k < 4; k++) sum += dv.getUint8(o + k);
+                    for (let k = 0; k < 4; k++) {
+                        const w = dv.getUint8(o + k);
+                        const b = dv.getUint8(o + 4 + k);
+                        boneWeights[i * 4 + k] = sum > 0 ? w / sum : (k === 0 ? 1 : 0);
+                        boneIndices[i * 4 + k] = (b === 0xFF || w === 0) ? 0 : b;
+                    }
+                }
                 dp = align16(dp + info.wiAlloc);
             }
 
@@ -1492,6 +1519,7 @@ function wavToPlayable(d){
 
             chunks.push({
                 positions, normals, uvs, indices, triFlags,
+                boneWeights, boneIndices,
                 numVerts: numPos,
                 numTris: numFaces,
                 texIdxRaw: texIdx[ci],
@@ -1545,6 +1573,52 @@ function wavToPlayable(d){
         const group = new THREE.Group();
         group.name = "V3M";
 
+        /* Skeleton: RF stores each bone's model-space pose (pos = bone-to-model
+           translation, quat = orientation). Vertices are baked with X negated,
+           so bones are conjugated by the same mirror: quat (x,y,z,w) ->
+           (x,-y,-z,w), pos -> (-x,y,z). Inverse binds come from these same
+           matrices, so the bind pose renders identically to the rigid path. */
+        let skel = null;
+        if (model.bones && model.bones.length) {
+            const n = model.bones.length;
+            const bones = [];
+            const modelMats = [];
+            const bindLocals = [];
+            const inverses = [];
+            for (let i = 0; i < n; i++) {
+                const src = model.bones[i];
+                const q = new THREE.Quaternion(src.quat[0], -src.quat[1], -src.quat[2], src.quat[3]).normalize();
+                const p = new THREE.Vector3(-src.pos[0], src.pos[1], src.pos[2]);
+                const m = new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1));
+                modelMats.push(m);
+                const b = new THREE.Bone();
+                b.name = src.name;
+                bones.push(b);
+            }
+            for (let i = 0; i < n; i++) {
+                const pi = model.bones[i].parent;
+                const local = modelMats[i].clone();
+                if (pi >= 0 && pi < n) {
+                    local.premultiply(new THREE.Matrix4().copy(modelMats[pi]).invert());
+                    bones[pi].add(bones[i]);
+                }
+                const lp = new THREE.Vector3(), lq = new THREE.Quaternion(), ls = new THREE.Vector3();
+                local.decompose(lp, lq, ls);
+                bones[i].position.copy(lp);
+                bones[i].quaternion.copy(lq);
+                bindLocals.push({ p: lp.clone(), q: lq.clone() });
+                inverses.push(new THREE.Matrix4().copy(modelMats[i]).invert());
+            }
+            skel = {
+                bones,
+                bindLocals,
+                skeleton: new THREE.Skeleton(bones, inverses),
+                roots: bones.filter((b, i) => model.bones[i].parent < 0),
+            };
+            group.userData.skel = skel;
+        }
+
+        let firstSkinned = null;
         for (const sm of model.submeshes) {
             const li = Math.min(lodIdx, sm.lods.length - 1);
             const lod = sm.lods[li];
@@ -1611,14 +1685,35 @@ function wavToPlayable(d){
                     wireframe: !!opts.wireframe,
                 });
 
-                const mesh = new THREE.Mesh(geo, mat);
+                let mesh;
+                if (skel && ch.boneIndices) {
+                    geo.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(ch.boneIndices, 4));
+                    geo.setAttribute("skinWeight", new THREE.BufferAttribute(ch.boneWeights, 4));
+                    mat.skinning = true;
+                    mesh = new THREE.SkinnedMesh(geo, mat);
+                    if (!firstSkinned) firstSkinned = mesh;
+                    mesh.bind(skel.skeleton, new THREE.Matrix4());
+                } else {
+                    mesh = new THREE.Mesh(geo, mat);
+                }
                 mesh.name = (sm.name || "submesh") + "/chunk" + ci + (texName ? " [" + texName + "]" : "");
                 mesh.userData = { textureName: texName, materialIndex: ch.materialIndex, renderFlags: ch.renderFlags };
                 smGroup.add(mesh);
             }
             group.add(smGroup);
         }
+        if (skel) for (const rb of skel.roots) group.add(rb);
         return group;
+    }
+
+    /* Reset a skinned group to its bind pose */
+    function resetPose(group) {
+        const skel = group && group.userData && group.userData.skel;
+        if (!skel) return;
+        for (let i = 0; i < skel.bones.length; i++) {
+            skel.bones[i].position.copy(skel.bindLocals[i].p);
+            skel.bones[i].quaternion.copy(skel.bindLocals[i].q);
+        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -1712,7 +1807,7 @@ function wavToPlayable(d){
         return tex;
     }
 
-    return { parse, buildThreeGroup, decodeTGA, tgaToTexture,
+    return { parse, buildThreeGroup, resetPose, decodeTGA, tgaToTexture,
              LOD_FLAG_ORIG_MAP, LOD_FLAG_TRI_PLANES, TRI_FLAG_DOUBLE_SIDED };
 }));
 /*V3M_MODULE_END*/
@@ -2281,6 +2376,112 @@ function wavToPlayable(d){
     return { parse, buildThreeGroup, applyGroupTime, MAGIC_VSFX };
 }));
 /*VFX_MODULE_END*/
+/* ---- RFA (Red Faction Animation, 'VMVF') engine ----
+   Parses bone rotation/translation tracks per rafalh/rf-reversed rfa.ksy
+   and drives the V3M skeleton. Times are 1/4800 s. Stored rotation keys
+   are inverted (RF quirk), so conjugation is folded in at parse; the
+   viewer's X-mirror is folded in too: quat -> (-x, y, z, w), pos ->
+   (-x, y, z). Morph tracks (facial animation) are parsed but not applied. */
+/*RFA_MODULE_START*/
+const RFA=(function(){
+  const TICKS=4800;
+  function parse(arrayBuffer){
+    const dv=new DataView(arrayBuffer);
+    if(dv.getUint32(0,true)!==0x46564D56)throw new Error("Not an RFA (VMVF) file");
+    const version=dv.getInt32(4,true);
+    if(version!==7&&version!==8)throw new Error("Unsupported RFA version "+version);
+    const startT=dv.getInt32(16,true)/TICKS;
+    const endT=dv.getInt32(20,true)/TICKS;
+    const numBones=dv.getInt32(24,true);
+    const numMorphVerts=dv.getInt32(28,true);
+    const numMorphKeys=dv.getInt32(32,true);
+    if(numBones<0||numBones>50)throw new Error("Bad bone count "+numBones);
+    /* header: 40 fixed + quat(16) + vec3(12) + 2 offsets(8) = 76, then bone offsets */
+    const boneOffsets=[];
+    for(let i=0;i<numBones;i++)boneOffsets.push(dv.getInt32(76+i*4,true));
+    const bones=[];
+    for(let i=0;i<numBones;i++){
+      let p=boneOffsets[i];
+      const weight=dv.getFloat32(p,true);
+      const nRot=dv.getInt16(p+4,true);
+      const nTrans=dv.getInt16(p+6,true);
+      p+=8;
+      const rt=new Float32Array(nRot),rq=new Float32Array(nRot*4);
+      for(let k=0;k<nRot;k++){
+        rt[k]=dv.getInt32(p,true)/TICKS;
+        let x=dv.getInt16(p+4,true),y=dv.getInt16(p+6,true),z=dv.getInt16(p+8,true),w=dv.getInt16(p+10,true);
+        const len=Math.hypot(x,y,z,w)||1;
+        /* conjugate (stored inverted) + X-mirror => (-x, y, z, w) */
+        rq[k*4+0]=-x/len; rq[k*4+1]=y/len; rq[k*4+2]=z/len; rq[k*4+3]=w/len;
+        p+=16;
+      }
+      const tt=new Float32Array(nTrans),tv=new Float32Array(nTrans*3);
+      for(let k=0;k<nTrans;k++){
+        tt[k]=dv.getInt32(p,true)/TICKS;
+        tv[k*3+0]=-dv.getFloat32(p+4,true);
+        tv[k*3+1]=dv.getFloat32(p+8,true);
+        tv[k*3+2]=dv.getFloat32(p+12,true);
+        p+=40; /* time + pos + in_tangent + out_tangent */
+      }
+      bones.push({weight,rt,rq,tt,tv});
+    }
+    return {version,startT,endT,numBones,numMorphVerts,numMorphKeys,bones,
+            duration:Math.max(0.001,endT-startT)};
+  }
+  function keyIndex(times,t){
+    let lo=0,hi=times.length-1;
+    if(t<=times[0])return 0;
+    if(t>=times[hi])return hi;
+    while(hi-lo>1){const mid=(lo+hi)>>1;if(times[mid]<=t)lo=mid;else hi=mid;}
+    return lo+ (t-times[lo])/(times[lo+1]-times[lo]||1);
+  }
+  const _qa=[0,0,0,1],_qb=[0,0,0,1];
+  function sampleBone(tr,t,outQ,outP){
+    let hasQ=false,hasP=false;
+    if(tr.rt.length){
+      hasQ=true;
+      const f=keyIndex(tr.rt,t),i=Math.floor(f),fr=f-i;
+      if(fr<=0||i+1>=tr.rt.length){
+        for(let k=0;k<4;k++)outQ[k]=tr.rq[i*4+k];
+      }else{
+        for(let k=0;k<4;k++){_qa[k]=tr.rq[i*4+k];_qb[k]=tr.rq[(i+1)*4+k];}
+        let dot=_qa[0]*_qb[0]+_qa[1]*_qb[1]+_qa[2]*_qb[2]+_qa[3]*_qb[3];
+        const s=dot<0?-1:1;
+        let len=0;
+        for(let k=0;k<4;k++){outQ[k]=_qa[k]+(s*_qb[k]-_qa[k])*fr;len+=outQ[k]*outQ[k];}
+        len=Math.sqrt(len)||1;
+        for(let k=0;k<4;k++)outQ[k]/=len;
+      }
+    }
+    if(tr.tt.length){
+      hasP=true;
+      const f=keyIndex(tr.tt,t),i=Math.floor(f),fr=f-i;
+      if(fr<=0||i+1>=tr.tt.length){
+        for(let k=0;k<3;k++)outP[k]=tr.tv[i*3+k];
+      }else{
+        for(let k=0;k<3;k++)outP[k]=tr.tv[i*3+k]+(tr.tv[(i+1)*3+k]-tr.tv[i*3+k])*fr;
+      }
+    }
+    return {hasQ,hasP};
+  }
+  /* Drive a V3M skinned group's bones at absolute time t (seconds). */
+  function applyPose(group,anim,t){
+    const skel=group&&group.userData&&group.userData.skel;
+    if(!skel)return;
+    const n=Math.min(skel.bones.length,anim.bones.length);
+    const q=[0,0,0,1],p=[0,0,0];
+    for(let i=0;i<n;i++){
+      const got=sampleBone(anim.bones[i],t,q,p);
+      const b=skel.bones[i];
+      if(got.hasQ)b.quaternion.set(q[0],q[1],q[2],q[3]);
+      else b.quaternion.copy(skel.bindLocals[i].q);
+      if(got.hasP)b.position.set(p[0],p[1],p[2]);
+      else b.position.copy(skel.bindLocals[i].p);
+    }
+  }
+  return {parse,applyPose};
+})();
+/*RFA_MODULE_END*/
 const V3M_SIG=0x52463344, V3C_SIG=0x5246434D;
 
 /* ================================================================
@@ -3031,6 +3232,7 @@ function getDecoded(e,kind){
   else if(kind==="vbm")v=decodeVbm(d);
   else if(kind==="v3m")v=V3M.parse(d.slice().buffer);
   else if(kind==="vfx")v=VFX.parse(d.slice().buffer);
+  else if(kind==="rfa")v=RFA.parse(d.slice().buffer);
   else if(kind==="pcx")v=decodePcx(d);
   else if(kind==="dds")v=decodeDds(d);
   else if(kind==="vf")v=decodeVf(d);
@@ -3117,6 +3319,22 @@ function renderContent(body,e,big,acts){
         return;
       }
       case "rfa":{
+        /* if a character in this VPP has a matching skeleton, preview the
+           animation playing on it; otherwise fall back to the info card */
+        let host=null;
+        try{
+          const h=parseRfaHeader(d);
+          if(h&&h.bones>0)host=state.entries.find(x=>{
+            if(x.tkey!=="v3c")return false;
+            try{const m=getDecoded(x,"v3m");return m.bones&&m.bones.length===h.bones;}
+            catch(_){return false;}
+          })||null;
+        }catch(_){}
+        if(host){
+          render3d(body,host,big,{rfa:e});
+          addExpand();addExtract();
+          return;
+        }
         renderRfa(body,e,d);
         addExpand();addExtract();
         return;
@@ -3413,11 +3631,18 @@ function computeModelStats(model,lodIdx){
   }
   return {chunks,verts,tris,maxLods};
 }
-function render3d(body,e,big){
+function render3d(body,e,big,r3opts){
   body.innerHTML="";
   const isVfx=e.tkey==="vfx";
   const engine=isVfx?VFX:V3M;
   const model=getDecoded(e,isVfx?"vfx":"v3m");
+  /* character rig: RFAs in this VPP whose bone count matches the skeleton */
+  const isChar=!isVfx&&model.isSkeletal&&model.bones&&model.bones.length>0;
+  const rfaList=isChar?state.entries.filter(x=>{
+    if(x.tkey!=="rfa"&&x.tkey!=="mvf")return false;
+    try{const h=parseRfaHeader(entryData(x));return h&&h.bones===model.bones.length;}
+    catch(_){return false;}
+  }):[];
   const st0=computeModelStats(model,0);
   const bar=document.createElement("div");bar.className="viewer-bar";
   const statLine=document.createElement("span");
@@ -3431,7 +3656,7 @@ function render3d(body,e,big){
       s+=" · "+(short?'<span class="warn">':"")+"textures "+tally.hit+" / "+tally.total+(short?"</span>":"");
       statLine.title=short?"Some referenced textures are not in this VPP":"All referenced textures found in this VPP";
     }
-    if(model.isSkeletal)s+=" · V3C static pose";
+    if(model.isSkeletal)s+=" · V3C character"+(model.bones&&model.bones.length?" · "+plural(model.bones.length,"bone"):"");
     if(model.isVfx)s+=" · VFX effect";
     statLine.innerHTML=s;
   }
@@ -3453,9 +3678,13 @@ function render3d(body,e,big){
   const reset=document.createElement("button");
   reset.className="btn outline sm";reset.textContent="Reset view";
   bar.appendChild(wire);bar.appendChild(reset);
-  /* VFX animation controls: play/pause + scrubber + time readout */
-  let onPlayState=null,onProgress=null;
-  if(isVfx&&model.anim&&model.anim.hasAnim){
+  /* Animation controls: play/pause + scrubber + time readout.
+     VFX: driven by the effect's own timeline. V3C: driven by a picked RFA. */
+  let onPlayState=null,onProgress=null,animSel=null;
+  const hasVfxAnim=isVfx&&model.anim&&model.anim.hasAnim;
+  if(hasVfxAnim||(isChar&&rfaList.length)){
+    let dur=hasVfxAnim?(model.anim.end-model.anim.start):0;
+    let t0=hasVfxAnim?model.anim.start:0;
     const playBtn=document.createElement("button");
     playBtn.className="btn outline sm";playBtn.textContent="Play";
     const scrub=document.createElement("input");
@@ -3465,15 +3694,41 @@ function render3d(body,e,big){
     const timeLbl=document.createElement("span");
     timeLbl.className="vinfo";
     timeLbl.style.cssText="min-width:88px;text-align:right;font-variant-numeric:tabular-nums;opacity:.8";
-    const dur=(model.anim.end-model.anim.start);
-    timeLbl.textContent="0.00 / "+dur.toFixed(2)+"s";
+    if(hasVfxAnim)timeLbl.textContent="0.00 / "+dur.toFixed(2)+"s";
+    if(isChar){
+      animSel=document.createElement("select");
+      animSel.title="Play a character animation from this VPP";
+      animSel.style.cssText="height:20px;max-width:190px;background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:4px;font:400 11px var(--sans)";
+      animSel.innerHTML='<option value="">Bind pose</option>'
+        +rfaList.map(x=>'<option value="'+x.id+'">'+esc(x.name)+"</option>").join("");
+      bar.appendChild(animSel);
+      playBtn.disabled=true;scrub.disabled=true;
+      animSel.addEventListener("change",()=>{
+        if(!live3d)return;
+        if(!animSel.value){
+          live3d.setRfa(null);
+          playBtn.disabled=true;scrub.disabled=true;scrub.value="0";timeLbl.textContent="";
+          return;
+        }
+        const ent=byId(+animSel.value);
+        if(!ent)return;
+        try{
+          const anim=getDecoded(ent,"rfa");
+          dur=anim.duration;t0=anim.startT;
+          timeLbl.textContent="0.00 / "+dur.toFixed(2)+"s";
+          playBtn.disabled=false;scrub.disabled=false;
+          live3d.setRfa(anim);
+          live3d.play();
+        }catch(err){toast("Could not read "+ent.name+": "+err.message,true);}
+      });
+    }
     bar.appendChild(playBtn);bar.appendChild(scrub);bar.appendChild(timeLbl);
     let scrubbing=false;
     playBtn.addEventListener("click",()=>{if(live3d)live3d.toggle();});
     scrub.addEventListener("input",()=>{scrubbing=true;if(live3d)live3d.seek(scrub.value/1000);});
     scrub.addEventListener("change",()=>{scrubbing=false;});
     onPlayState=(pl)=>{playBtn.textContent=pl?"Pause":"Play";playBtn.style.color=pl?"var(--accent-hover)":"";};
-    onProgress=(frac,clock)=>{if(!scrubbing)scrub.value=Math.round(Math.max(0,Math.min(1,frac))*1000);timeLbl.textContent=(clock-model.anim.start).toFixed(2)+" / "+dur.toFixed(2)+"s";};
+    onProgress=(frac,clock)=>{if(!scrubbing)scrub.value=Math.round(Math.max(0,Math.min(1,frac))*1000);timeLbl.textContent=(clock-t0).toFixed(2)+" / "+dur.toFixed(2)+"s";};
   }
   const wrapOuter=document.createElement("div");
   wrapOuter.className="v3wrap";
@@ -3531,6 +3786,10 @@ function render3d(body,e,big){
     live3d=makeViewer3d(holder,model,{wireBtn:wire,resetBtn:reset,lodSeg,onStats:refreshPills,engine,
       onPlayState:(p)=>{if(onPlayState)onPlayState(p);},
       onProgress:(f,c)=>{if(onProgress)onProgress(f,c);}});
+    if(animSel&&r3opts&&r3opts.rfa&&rfaList.some(x=>x.id===r3opts.rfa.id)){
+      animSel.value=String(r3opts.rfa.id);
+      animSel.dispatchEvent(new Event("change"));
+    }
   }).catch(err=>{
     loading.innerHTML='<div class="t" style="color:var(--warn)">'+esc(err.message)+'</div>';
   });
@@ -3538,6 +3797,8 @@ function render3d(body,e,big){
 function makeViewer3d(holder,model,ui){
   const T=window.THREE;
   const ENG=(ui&&ui.engine)||V3M;
+  let animCur=null,playing=false,clock=0,lastNow=0;
+  function applyClock(){if(animCur)animCur.apply(clock);}
   const renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
   renderer.setClearColor(0x0d0c0b,1);
@@ -3611,6 +3872,7 @@ function makeViewer3d(holder,model,ui){
       }
     });
     scene.add(group);
+    if(animCur)applyClock(); /* keep pose across LOD rebuilds */
     const box=new T.Box3().setFromObject(group);
     if(!box.isEmpty()){
       const center=box.getCenter(new T.Vector3());
@@ -3638,21 +3900,21 @@ function makeViewer3d(holder,model,ui){
     camera.updateProjectionMatrix();
   }
   size();applyCam();
-  const vfxAnim=(model.isVfx&&model.anim&&model.anim.hasAnim)?model.anim:null;
-  let playing=false,clock=vfxAnim?vfxAnim.start:0,lastNow=0;
-  function applyClock(){if(vfxAnim&&ENG.applyGroupTime)ENG.applyGroupTime(group,clock,T);}
-  if(vfxAnim)applyClock();
+  animCur=(model.isVfx&&model.anim&&model.anim.hasAnim)
+    ?{start:model.anim.start,end:model.anim.end,apply:t=>{if(ENG.applyGroupTime)ENG.applyGroupTime(group,t,T);}}
+    :null;
+  if(animCur){clock=animCur.start;applyClock();}
   let raf=0,alive=true;
   const loop=(now)=>{
     if(!alive)return;
-    if(vfxAnim&&playing){
+    if(animCur&&playing){
       if(!lastNow)lastNow=now||0;
       const dt=Math.min(0.1,((now||0)-lastNow)/1000);
       lastNow=now||0;
       clock+=dt;
-      if(clock>vfxAnim.end||clock<vfxAnim.start)clock=vfxAnim.start;
+      if(clock>animCur.end||clock<animCur.start)clock=animCur.start;
       applyClock();
-      if(ui.onProgress)ui.onProgress((clock-vfxAnim.start)/Math.max(1e-3,vfxAnim.end-vfxAnim.start),clock);
+      if(ui.onProgress)ui.onProgress((clock-animCur.start)/Math.max(1e-3,animCur.end-animCur.start),clock);
     }else lastNow=0;
     renderer.render(scene,camera);
     raf=requestAnimationFrame(loop);
@@ -3706,17 +3968,31 @@ function makeViewer3d(holder,model,ui){
   }
   return {
     resize:size,
-    isAnimated:!!vfxAnim,
-    play(){if(vfxAnim){playing=true;if(ui.onPlayState)ui.onPlayState(true);}},
+    get isAnimated(){return !!animCur;},
+    play(){if(animCur){playing=true;if(ui.onPlayState)ui.onPlayState(true);}},
     pause(){playing=false;lastNow=0;if(ui.onPlayState)ui.onPlayState(false);},
-    toggle(){if(!vfxAnim)return;playing=!playing;if(!playing)lastNow=0;if(ui.onPlayState)ui.onPlayState(playing);},
+    toggle(){if(!animCur)return;playing=!playing;if(!playing)lastNow=0;if(ui.onPlayState)ui.onPlayState(playing);},
     seek(frac){
-      if(!vfxAnim)return;
+      if(!animCur)return;
       playing=false;lastNow=0;
-      clock=vfxAnim.start+Math.max(0,Math.min(1,frac))*(vfxAnim.end-vfxAnim.start);
+      clock=animCur.start+Math.max(0,Math.min(1,frac))*(animCur.end-animCur.start);
       applyClock();
       if(ui.onPlayState)ui.onPlayState(false);
       if(ui.onProgress)ui.onProgress(frac,clock);
+    },
+    setRfa(anim){
+      playing=false;lastNow=0;
+      if(!anim){
+        animCur=null;
+        if(V3M.resetPose)V3M.resetPose(group);
+        if(ui.onPlayState)ui.onPlayState(false);
+        return;
+      }
+      animCur={start:anim.startT,end:anim.endT,apply:t=>RFA.applyPose(group,anim,t)};
+      clock=anim.startT;
+      applyClock();
+      if(ui.onPlayState)ui.onPlayState(false);
+      if(ui.onProgress)ui.onProgress(0,clock);
     },
     snapshot(name){
       renderer.render(scene,camera);
