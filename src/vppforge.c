@@ -54,7 +54,7 @@ typedef int sock_t;
 #define MAX_PATHS 64
 #define HDR_MAX 16384
 #define BRIDGE_MARK "<!--VPP_BRIDGE-->"
-#define VPP_VERSION "1.14.0"
+#define VPP_VERSION "1.15.0"
 #define WIDEN2(x) L ## x
 #define WIDEN(x) WIDEN2(x)
 #define SETTINGS_MAX 32768
