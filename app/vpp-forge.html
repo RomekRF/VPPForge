@@ -1573,11 +1573,15 @@ function wavToPlayable(d){
         const group = new THREE.Group();
         group.name = "V3M";
 
-        /* Skeleton: RF stores each bone's model-space pose (pos = bone-to-model
-           translation, quat = orientation). Vertices are baked with X negated,
-           so bones are conjugated by the same mirror: quat (x,y,z,w) ->
-           (x,-y,-z,w), pos -> (-x,y,z). Inverse binds come from these same
-           matrices, so the bind pose renders identically to the rigid path. */
+        /* Skeleton: the stored bone transform is the INVERSE bind (model->bone),
+           not the bind pose. With the mesh mirrored on X, the bind pose in
+           model space is therefore:
+               bindRot = (x, -y, -z, w)                 (mirror of stored quat)
+               bindPos = -(bindRot * (-px, py, pz))     (undo the inverse)
+           Using the stored transform directly as the pose leaves every bone
+           origin in the wrong place: harmless at bind time (self-consistent)
+           but it warps the mesh as soon as an animation moves a bone.
+           Matches GooberRF/redux's glTF exporter. */
         let skel = null;
         if (model.bones && model.bones.length) {
             const n = model.bones.length;
@@ -1588,7 +1592,8 @@ function wavToPlayable(d){
             for (let i = 0; i < n; i++) {
                 const src = model.bones[i];
                 const q = new THREE.Quaternion(src.quat[0], -src.quat[1], -src.quat[2], src.quat[3]).normalize();
-                const p = new THREE.Vector3(-src.pos[0], src.pos[1], src.pos[2]);
+                const p = new THREE.Vector3(-src.pos[0], src.pos[1], src.pos[2])
+                    .applyQuaternion(q).multiplyScalar(-1);
                 const m = new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1));
                 modelMats.push(m);
                 const b = new THREE.Bone();
