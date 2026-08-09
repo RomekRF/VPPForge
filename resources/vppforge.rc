@@ -1,7 +1,9 @@
+#include "../src/version.h"
+
 1 ICON "vppforge.ico"
 1 VERSIONINFO
-FILEVERSION 1,8,0,0
-PRODUCTVERSION 1,8,0,0
+FILEVERSION VPP_VERSION_COMMA
+PRODUCTVERSION VPP_VERSION_COMMA
 FILEOS 0x40004
 FILETYPE 0x1
 BEGIN
@@ -11,9 +13,9 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "Romek (RomekRF)"
       VALUE "FileDescription", "VPP Forge - Red Faction VPP workbench"
-      VALUE "FileVersion", "1.8.0"
+      VALUE "FileVersion", VPP_VERSION
       VALUE "ProductName", "VPP Forge"
-      VALUE "ProductVersion", "1.8.0"
+      VALUE "ProductVersion", VPP_VERSION
       VALUE "LegalCopyright", "VPP Forge by Romek (RomekRF). Successor to Descent Manager VPPBuilder32 by Heiko Herrmann, Descent Network"
       VALUE "OriginalFilename", "vppforge.exe"
     END
