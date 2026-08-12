@@ -4133,6 +4133,7 @@ function showShortcuts(){
     [["Open VPP","Ctrl O"],["Save VPP","Ctrl S"],["Undo / Redo","Ctrl Z / Y"],["Duplicate","Ctrl D"],
      ["Filter files","Ctrl F"],["Select all","Ctrl A"],
      ["Move through list","↑ / ↓"],["Extend selection","Shift ↑ / ↓"],["First / last","Home / End"],
+     ["Play / pause animation","Space"],
      ["Full size preview","Enter"],["Rename","F2"],["Remove selected","Del"],["Reorder file","Alt ↑ / ↓"],
      ["Close / clear","Esc"],["This panel","?"]]
       .map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+
@@ -4567,6 +4568,12 @@ document.addEventListener("keydown",ev=>{
     }
     state.cursor=vis[next];
     renderRows();renderChrome();renderPreview();scrollToRow(vis[next]);
+  }
+  /* space plays/pauses the previewed animation (VFX effects, character RFAs) */
+  else if(ev.key===" "||ev.code==="Space"){
+    const ae=document.activeElement;
+    if(ae&&/^(BUTTON|SELECT|TEXTAREA|A)$/.test(ae.tagName))return; /* let the focused control have it */
+    if(live3d&&live3d.isAnimated){ev.preventDefault();live3d.toggle();}
   }
   else if(ev.key==="?")showShortcuts();
 });
