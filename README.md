@@ -28,24 +28,35 @@ VPPBUILDER32 and VPVIEW32.
   filtering, reordering, rename-in-place, drag-and-drop.
 - Start screen with recent files; light/dark theme and swappable panel
   layout; all preferences persist between sessions.
-- Installs itself on first run (per-user, no admin): `.vpp` association,
-  Start Menu entry, Windows Apps uninstall entry. Newer builds update
-  the installed copy automatically.
+- Optional per-user setup on first run (no admin), which adds the `.vpp`
+  file association, a Start Menu entry and an Apps uninstall entry.
+  Decline it and the exe simply runs. Newer builds update an installed
+  copy automatically.
+- Also ships as a single self-contained HTML file that runs in Chrome or
+  Edge with nothing to install.
 
-## Get the exe
+## Download
 
-Grab the latest build from the
-[Releases page](https://github.com/RomekRF/VPPForge/releases/latest):
-download `VPPForge-Desktop-Win64.zip`, unzip it and run `vppforge.exe`.
+From the [Releases page](https://github.com/RomekRF/VPPForge/releases/latest),
+pick whichever suits you:
+
+**`VPPForge-Desktop-Win64.zip`** — the desktop app. Unzip and run
+`vppforge.exe`. Installing is optional: first launch offers to associate
+`.vpp` files and add a Start Menu entry, and declining just runs the app.
 SmartScreen or Defender may warn on first launch because the exe is not
 code-signed; choose "More info", then "Run anyway".
 
-For an unreleased build, open the **Actions** tab, pick the latest green
-`build-windows` run and download **VPPForge-Desktop-Win64** from the
-Artifacts box.
+**`VPPForge-Browser.html`** — the whole app in one file. Open it in Chrome
+or Edge; nothing to install and nothing for antivirus to scan. You lose
+only what needs the OS: files open by drag-and-drop rather than
+double-click, and saving downloads a new `.vpp` instead of writing back
+over the original.
+
+For an unreleased build, open the **Actions** tab and download the
+artifacts from the latest green `build-windows` run.
 
 To publish a release, push a version tag such as `v1.17.0`; the workflow
-builds it and attaches the zip to a GitHub Release automatically.
+builds it and attaches both files to a GitHub Release automatically.
 
 ## What the exe does
 

@@ -1,12 +1,23 @@
 VPP FORGE · Red Faction VPP workbench
 =====================================
 
+WHAT'S IN HERE
+  vppforge.exe            the desktop app
+  VPPForge-Browser.html   the same app as a single web page, no install
+
+  Use the exe for the full experience. Use the HTML if you would rather
+  not run an exe: open it in Chrome or Edge and everything works except
+  the parts that need Windows itself (see BROWSER VERSION below).
+
 SETUP
-  Run vppforge.exe. On first launch it asks whether to set itself up:
-  say Yes and .vpp files open in VPP Forge on double-click, a Start
-  Menu entry appears, and it's listed in Windows Apps. A short
-  welcome page then walks you through the basics (reopen it any time
-  from Help > Getting started).
+  Run vppforge.exe. Installing is optional. On first launch it asks
+  whether to set itself up:
+    Yes - .vpp files open in VPP Forge on double-click, a Start Menu
+          entry appears, and it's listed in Windows Apps for uninstall.
+    No  - it just runs, and never asks again. Nothing is written
+          outside your settings folder.
+  A short welcome page walks you through the basics (reopen it any
+  time from Help > Getting started).
   If an older VPP Forge is already installed, there is no prompt:
   the new version silently updates the installed copy the first time
   you run it, and .vpp files open with the new version from then on.
@@ -28,11 +39,22 @@ USING IT
   - Light/dark theme and the panel-swap button sit at the top right;
     theme, layout and panel sizes are remembered between sessions.
 
+BROWSER VERSION
+  Open VPPForge-Browser.html in Chrome or Edge. Same viewers, same
+  editing, nothing to install and nothing for antivirus to scan.
+  Differences from the exe:
+    - Open files by dragging them onto the page or the Open button;
+      double-clicking a .vpp in Explorer won't route here.
+    - Saving downloads a new .vpp through the browser instead of
+      writing back over the original file.
+    - Extract saves a single file or a ZIP to your Downloads folder
+      instead of asking for a destination folder.
+
 REMOVE
   Windows Settings > Apps > Installed apps > VPP Forge > Uninstall,
   or run: vppforge.exe /uninstall
   This removes the app, the .vpp association, the Start Menu entry
-  and saved settings.
+  and saved settings. If you never installed it, just delete the exe.
 
 NOTES
   - Windows 10 or 11, 64-bit. Uses your installed Edge or Chrome as
