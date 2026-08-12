@@ -3655,9 +3655,17 @@ function render3d(body,e,big,r3opts){
   const statLine=document.createElement("span");
   statLine.className="vinfo";
   bar.appendChild(statLine);
+  /* RF world units are metres: a stock character measures about 1.8 */
+  const fmtUnit=v=>(Math.abs(v)<0.1?v.toFixed(3):v.toFixed(2));
+  let lastSt=st0,lastTally={hit:0,total:model.textureNames.length},dims=null;
   function refreshPills(st,tally){
+    lastSt=st;lastTally=tally;
     let s="<b>"+model.submeshes.length+"</b> submesh"+(model.submeshes.length===1?"":"es")
       +" · "+st.verts.toLocaleString()+" verts · "+st.tris.toLocaleString()+" tris";
+    if(dims){
+      s+=' · <span title="width × height × depth in RF units (metres)">'
+        +fmtUnit(dims.x)+" × <b>"+fmtUnit(dims.y)+"</b> × "+fmtUnit(dims.z)+" m</span>";
+    }
     if(tally.total){
       const short=tally.hit<tally.total;
       s+=" · "+(short?'<span class="warn">':"")+"textures "+tally.hit+" / "+tally.total+(short?"</span>":"");
@@ -3792,7 +3800,8 @@ function render3d(body,e,big,r3opts){
     if(!body.isConnected)return;
     live3d=makeViewer3d(holder,model,{wireBtn:wire,resetBtn:reset,lodSeg,onStats:refreshPills,engine,
       onPlayState:(p)=>{if(onPlayState)onPlayState(p);},
-      onProgress:(f,c)=>{if(onProgress)onProgress(f,c);}});
+      onProgress:(f,c)=>{if(onProgress)onProgress(f,c);},
+      onBounds:(sz)=>{dims=sz;refreshPills(lastSt,lastTally);}});
     if(animSel&&r3opts&&r3opts.rfa&&rfaList.some(x=>x.id===r3opts.rfa.id)){
       animSel.value=String(r3opts.rfa.id);
       animSel.dispatchEvent(new Event("change"));
@@ -3883,7 +3892,9 @@ function makeViewer3d(holder,model,ui){
     const box=new T.Box3().setFromObject(group);
     if(!box.isEmpty()){
       const center=box.getCenter(new T.Vector3());
-      radius=Math.max(0.05,box.getSize(new T.Vector3()).length()/2);
+      const bsize=box.getSize(new T.Vector3());
+      radius=Math.max(0.05,bsize.length()/2);
+      if(ui.onBounds)ui.onBounds(bsize);
       if(!framed){
         orbit.target.copy(center);
         orbit.dist=Math.max(radius*2.6,0.4);
