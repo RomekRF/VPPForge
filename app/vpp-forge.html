@@ -2500,7 +2500,7 @@ function bridgeUrl(p){return p+(p.includes("?")?"&":"?")+"t="+BRIDGE.token;}
 function bridgeJson(p){return fetch(bridgeUrl(p)).then(r=>{if(!r.ok)throw new Error("bridge");return r.json();});}
 const state={
   name:null, srcBytes:null, entries:[], dirty:false,
-  sel:new Set(), anchor:null,
+  sel:new Set(), anchor:null, cursor:null,
   sortKey:null, sortDir:1, filter:"", typeFilter:null,
 };
 let nextId=1;
@@ -4132,6 +4132,7 @@ function showShortcuts(){
     '<h3>Keyboard shortcuts</h3><table>'+
     [["Open VPP","Ctrl O"],["Save VPP","Ctrl S"],["Undo / Redo","Ctrl Z / Y"],["Duplicate","Ctrl D"],
      ["Filter files","Ctrl F"],["Select all","Ctrl A"],
+     ["Move through list","↑ / ↓"],["Extend selection","Shift ↑ / ↓"],["First / last","Home / End"],
      ["Full size preview","Enter"],["Rename","F2"],["Remove selected","Del"],["Reorder file","Alt ↑ / ↓"],
      ["Close / clear","Esc"],["This panel","?"]]
       .map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+
@@ -4442,6 +4443,7 @@ $("rows").addEventListener("click",ev=>{
   }else{
     state.sel.clear();state.sel.add(id);state.anchor=id;
   }
+  state.cursor=id;
   renderRows();renderChrome();renderPreview();
 });
 $("rows").addEventListener("dblclick",ev=>{
@@ -4544,6 +4546,28 @@ document.addEventListener("keydown",ev=>{
   }
   else if(ev.altKey&&ev.key==="ArrowUp"){ev.preventDefault();moveSelected(-1);}
   else if(ev.altKey&&ev.key==="ArrowDown"){ev.preventDefault();moveSelected(1);}
+  /* walk the file list; Shift extends the selection from the anchor */
+  else if(ev.key==="ArrowUp"||ev.key==="ArrowDown"||ev.key==="Home"||ev.key==="End"){
+    const vis=visible().map(x=>x.e.id);
+    if(!vis.length)return;
+    ev.preventDefault();
+    const curId=(state.cursor!=null&&vis.includes(state.cursor))?state.cursor:state.anchor;
+    const cur=curId!=null?vis.indexOf(curId):-1;
+    let next;
+    if(ev.key==="Home")next=0;
+    else if(ev.key==="End")next=vis.length-1;
+    else if(cur<0)next=ev.key==="ArrowDown"?0:vis.length-1;
+    else next=Math.max(0,Math.min(vis.length-1,cur+(ev.key==="ArrowDown"?1:-1)));
+    const a=state.anchor!=null?vis.indexOf(state.anchor):-1;
+    if(ev.shiftKey&&a>=0){
+      state.sel.clear();
+      for(let i=Math.min(a,next);i<=Math.max(a,next);i++)state.sel.add(vis[i]);
+    }else{
+      state.sel.clear();state.sel.add(vis[next]);state.anchor=vis[next];
+    }
+    state.cursor=vis[next];
+    renderRows();renderChrome();renderPreview();scrollToRow(vis[next]);
+  }
   else if(ev.key==="?")showShortcuts();
 });
 window.addEventListener("beforeunload",ev=>{if(state.dirty){ev.preventDefault();ev.returnValue="";}});
