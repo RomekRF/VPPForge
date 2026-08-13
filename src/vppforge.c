@@ -70,6 +70,7 @@ static char *g_page = NULL; /* html with injected bridge config */
 static size_t g_page_len = 0;
 static volatile int g_quit = 0;
 static char g_recent_path[4096] = "";
+static int g_startup_path = -1; /* the file we were launched with, if any */
 static char g_settings_path[4096] = "";
 static int g_just_installed = 0; /* this launch performed an install/update */
 #ifdef _WIN32
@@ -1310,10 +1311,12 @@ static void handle_conn(sock_t s) {
     if (!token_ok(target)) { resp_err(s, "403 Forbidden"); return; }
 
     if (!strcmp(method, "GET") && !strncmp(target, "/open", 5)) {
-        if (g_npaths > 0) {
+        /* only the file we were launched with; linked VPPs also register
+           paths, so index 0 is not necessarily it */
+        if (g_startup_path >= 0 && g_startup_path < g_npaths) {
             char nm[1024], out[1200];
-            json_escape(nm, sizeof nm, base_name(g_paths[0]));
-            snprintf(out, sizeof out, "{\"id\":0,\"name\":\"%s\"}", nm);
+            json_escape(nm, sizeof nm, base_name(g_paths[g_startup_path]));
+            snprintf(out, sizeof out, "{\"id\":%d,\"name\":\"%s\"}", g_startup_path, nm);
             resp_json(s, out);
         } else resp_json(s, "{}");
         return;
@@ -1594,7 +1597,7 @@ int APIENTRY wWinMain(HINSTANCE hi, HINSTANCE hp, LPWSTR cl, int ns) {
         }
         if (argv[1][0] != L'/') {
             char *u = wide_to_utf8(argv[1]);
-            if (u) { register_path(u); free(u); }
+            if (u) { g_startup_path = register_path(u); free(u); }
         }
     }
     if (argv) LocalFree(argv);
@@ -1611,7 +1614,7 @@ int APIENTRY wWinMain(HINSTANCE hi, HINSTANCE hp, LPWSTR cl, int ns) {
             free(u);
         }
     }
-    if (g_npaths > 0) add_recent(g_paths[0]);
+    if (g_startup_path >= 0) add_recent(g_paths[g_startup_path]);
     update_cleanup();
     maybe_offer_setup();
     build_page();
@@ -1637,8 +1640,8 @@ int main(int argc, char **argv) {
       snprintf(g_recent_path, sizeof g_recent_path, "%s", rp ? rp : "./vppforge_recent.txt"); }
     { const char *sp = getenv("VPPFORGE_SETTINGS_FILE");
       snprintf(g_settings_path, sizeof g_settings_path, "%s", sp ? sp : "./vppforge_settings.json"); }
-    if (argc > 1) register_path(argv[1]);
-    if (g_npaths > 0) add_recent(g_paths[0]);
+    if (argc > 1) g_startup_path = register_path(argv[1]);
+    if (g_startup_path >= 0) add_recent(g_paths[g_startup_path]);
     build_page();
     ls = make_listener(&port);
     if (ls == INVALID_SOCKET || port == 0) { fprintf(stderr, "bind failed\n"); return 1; }
