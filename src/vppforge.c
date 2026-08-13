@@ -52,7 +52,7 @@ typedef int sock_t;
 
 #include "app_html.h" /* unsigned char APP_HTML[]; unsigned int APP_HTML_LEN; */
 
-#define MAX_PATHS 64
+#define MAX_PATHS 512 /* opened files, save targets and every linked VPP */
 #define HDR_MAX 16384
 #define BRIDGE_MARK "<!--VPP_BRIDGE-->"
 #include "version.h"
@@ -333,6 +333,195 @@ static int plat_dialog_folder(char *out_utf8, size_t cap) {
     if (SUCCEEDED(co)) CoUninitialize();
     return ok;
 }
+
+/* the http helpers live further down; these handlers need them early */
+static int send_all(sock_t s, const char *buf, size_t len);
+static void resp_json(sock_t s, const char *body);
+static void resp_err(sock_t s, const char *status);
+
+/* ------------------- linked VPPs (read-only asset sources) --------------- */
+/* A linked VPP is read by directory first and sliced on demand, so linking
+   the stock maps*.vpp (300 MB together) costs a few KB until a texture is
+   actually needed. */
+
+#define VPP_SIGNATURE 0x51890ACEu
+#define VPP_SECTOR    2048
+
+static unsigned long vpp_align(unsigned long v) {
+    return (v % VPP_SECTOR) ? (v - (v % VPP_SECTOR) + VPP_SECTOR) : v;
+}
+
+/* Emit the directory of a registered VPP as JSON: name, offset, size. */
+static void handle_vpp_dir(sock_t s, int id) {
+    FILE *f = plat_fopen(g_paths[id], "rb");
+    unsigned char head[16];
+    unsigned long num, i, data_off;
+    char *out;
+    size_t cap, len = 0;
+    if (!f) { resp_err(s, "404 Not Found"); return; }
+    if (fread(head, 1, 16, f) != 16 ||
+        (unsigned long)(head[0] | (head[1] << 8) | (head[2] << 16) | ((unsigned long)head[3] << 24)) != VPP_SIGNATURE) {
+        fclose(f); resp_err(s, "400 Not A VPP"); return;
+    }
+    num = (unsigned long)(head[8] | (head[9] << 8) | (head[10] << 16) | ((unsigned long)head[11] << 24));
+    if (num > 200000) { fclose(f); resp_err(s, "400 Bad VPP"); return; }
+    cap = 64 + num * 96;
+    out = (char *)malloc(cap);
+    if (!out) { fclose(f); resp_err(s, "500 Out Of Memory"); return; }
+    len += (size_t)snprintf(out + len, cap - len, "{\"list\":[");
+    data_off = vpp_align((unsigned long)(VPP_SECTOR + 64 * num));
+    if (fseek(f, VPP_SECTOR, SEEK_SET) != 0) { free(out); fclose(f); resp_err(s, "400 Bad VPP"); return; }
+    for (i = 0; i < num; i++) {
+        unsigned char rec[64];
+        char name[61], esc[130];
+        unsigned long size;
+        int j;
+        if (fread(rec, 1, 64, f) != 64) break;
+        for (j = 0; j < 60 && rec[j]; j++) name[j] = (char)rec[j];
+        name[j] = 0;
+        size = (unsigned long)(rec[60] | (rec[61] << 8) | (rec[62] << 16) | ((unsigned long)rec[63] << 24));
+        json_escape(esc, sizeof esc, name);
+        if (len + 200 >= cap) break;
+        len += (size_t)snprintf(out + len, cap - len, "%s{\"name\":\"%s\",\"off\":%lu,\"size\":%lu}",
+                                i ? "," : "", esc, data_off, size);
+        data_off += vpp_align(size);
+    }
+    snprintf(out + len, cap - len, "]}");
+    fclose(f);
+    resp_json(s, out);
+    free(out);
+}
+
+/* Send a byte range out of a registered file. */
+static void handle_vpp_slice(sock_t s, int id, unsigned long off, unsigned long len) {
+    FILE *f;
+    char hdr[256];
+    char buf[65536];
+    unsigned long left = len;
+    if (len > 256u * 1024u * 1024u) { resp_err(s, "400 Too Large"); return; }
+    f = plat_fopen(g_paths[id], "rb");
+    if (!f) { resp_err(s, "404 Not Found"); return; }
+    if (fseek(f, (long)off, SEEK_SET) != 0) { fclose(f); resp_err(s, "416 Bad Range"); return; }
+    snprintf(hdr, sizeof hdr,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+        "Content-Length: %lu\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", len);
+    if (send_all(s, hdr, strlen(hdr))) { fclose(f); return; }
+    while (left) {
+        size_t want = left > sizeof buf ? sizeof buf : left;
+        size_t got = fread(buf, 1, want, f);
+        if (!got) break;
+        if (send_all(s, buf, got)) break;
+        left -= (unsigned long)got;
+    }
+    fclose(f);
+}
+
+#ifdef _WIN32
+/* Locate a Red Faction install: registry first, then the usual folders.
+   A directory only counts if it holds tables.vpp. */
+static int rf_dir_valid(const wchar_t *dir) {
+    wchar_t probe[MAX_PATH * 2];
+    _snwprintf(probe, MAX_PATH * 2 - 1, L"%s\\tables.vpp", dir);
+    probe[MAX_PATH * 2 - 1] = 0;
+    return GetFileAttributesW(probe) != INVALID_FILE_ATTRIBUTES;
+}
+static int rf_find_install(wchar_t *out, size_t cap) {
+    static const wchar_t *reg_keys[] = {
+        L"SOFTWARE\\Volition\\Red Faction",
+        L"SOFTWARE\\WOW6432Node\\Volition\\Red Faction",
+        L"SOFTWARE\\THQ\\Red Faction",
+        L"SOFTWARE\\WOW6432Node\\THQ\\Red Faction",
+    };
+    static const wchar_t *reg_vals[] = { L"InstallPath", L"Install Path", L"PATH", L"" };
+    static const wchar_t *guesses[] = {
+        L"C:\\Red Faction",
+        L"C:\\Games\\Red Faction",
+        L"C:\\Program Files (x86)\\Red Faction",
+        L"C:\\Program Files\\Red Faction",
+        L"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Red Faction",
+        L"C:\\Program Files (x86)\\GOG Galaxy\\Games\\Red Faction",
+        L"C:\\GOG Games\\Red Faction",
+    };
+    size_t k, v, g;
+    for (k = 0; k < sizeof reg_keys / sizeof *reg_keys; k++) {
+        for (v = 0; v < sizeof reg_vals / sizeof *reg_vals; v++) {
+            wchar_t val[MAX_PATH * 2];
+            DWORD sz = sizeof val;
+            HKEY roots[2] = { HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER };
+            int r;
+            for (r = 0; r < 2; r++) {
+                if (RegGetValueW(roots[r], reg_keys[k], reg_vals[v][0] ? reg_vals[v] : NULL,
+                                 RRF_RT_REG_SZ, NULL, val, &sz) == ERROR_SUCCESS && rf_dir_valid(val)) {
+                    wcsncpy(out, val, cap - 1); out[cap - 1] = 0;
+                    return 1;
+                }
+                sz = sizeof val;
+            }
+        }
+    }
+    for (g = 0; g < sizeof guesses / sizeof *guesses; g++) {
+        if (rf_dir_valid(guesses[g])) {
+            wcsncpy(out, guesses[g], cap - 1); out[cap - 1] = 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* List the VPPs in a folder, registering each so it can be sliced later. */
+static void handle_game_vpps(sock_t s, const char *target) {
+    wchar_t dir[MAX_PATH * 2], pat[MAX_PATH * 2];
+    char given[4096];
+    WIN32_FIND_DATAW fd;
+    HANDLE h;
+    char out[16384];
+    size_t len = 0;
+    int n = 0;
+    if (qget(target, "dir", given, sizeof given) && given[0]) {
+        wchar_t *w = utf8_to_wide(given);
+        if (!w) { resp_json(s, "{\"found\":0}"); return; }
+        wcsncpy(dir, w, MAX_PATH * 2 - 1); dir[MAX_PATH * 2 - 1] = 0;
+        free(w);
+        if (!rf_dir_valid(dir)) { resp_json(s, "{\"found\":0}"); return; }
+    } else if (!rf_find_install(dir, MAX_PATH * 2)) {
+        resp_json(s, "{\"found\":0}");
+        return;
+    }
+    _snwprintf(pat, MAX_PATH * 2 - 1, L"%s\\*.vpp", dir); pat[MAX_PATH * 2 - 1] = 0;
+    {   char *du = wide_to_utf8(dir), esc[8300];
+        json_escape(esc, sizeof esc, du ? du : "");
+        if (du) free(du);
+        len += (size_t)snprintf(out + len, sizeof out - len, "{\"found\":1,\"dir\":\"%s\",\"list\":[", esc);
+    }
+    h = FindFirstFileW(pat, &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            wchar_t full[MAX_PATH * 2];
+            char *u, esc[300];
+            int id;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            _snwprintf(full, MAX_PATH * 2 - 1, L"%s\\%s", dir, fd.cFileName);
+            full[MAX_PATH * 2 - 1] = 0;
+            u = wide_to_utf8(full);
+            if (!u) continue;
+            id = register_path(u);
+            free(u);
+            if (id < 0) break;
+            {   char *nm = wide_to_utf8(fd.cFileName);
+                json_escape(esc, sizeof esc, nm ? nm : "");
+                if (nm) free(nm);
+            }
+            if (len + 400 >= sizeof out) break;
+            len += (size_t)snprintf(out + len, sizeof out - len, "%s{\"id\":%d,\"name\":\"%s\"}",
+                                    n ? "," : "", id, esc);
+            n++;
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    snprintf(out + len, sizeof out - len, "]}");
+    resp_json(s, out);
+}
+#endif
 
 /* --------------------------- self-update over HTTPS --------------------- */
 /* Checks the project's GitHub releases for a newer version, downloads the
@@ -1142,6 +1331,29 @@ static void handle_conn(sock_t s) {
         if (id < 0) { resp_err(s, "404 Not Found"); return; }
         plat_reveal(g_paths[id]);
         resp_json(s, "{\"ok\":1}");
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/vpp/dir", 8)) {
+        int id = parse_id(target);
+        if (id < 0) { resp_err(s, "404 Not Found"); return; }
+        handle_vpp_dir(s, id);
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/vpp/slice", 10)) {
+        int id = parse_id(target);
+        char vo[32], vl[32];
+        if (id < 0 || !qget(target, "off", vo, sizeof vo) || !qget(target, "len", vl, sizeof vl)) {
+            resp_err(s, "404 Not Found"); return;
+        }
+        handle_vpp_slice(s, id, strtoul(vo, NULL, 10), strtoul(vl, NULL, 10));
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/game/vpps", 10)) {
+#ifdef _WIN32
+        handle_game_vpps(s, target);
+#else
+        resp_json(s, "{\"found\":0}");
+#endif
         return;
     }
     if (!strcmp(method, "GET") && !strncmp(target, "/update/check", 13)) {

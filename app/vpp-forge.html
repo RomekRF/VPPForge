@@ -183,6 +183,11 @@ body.flip #sidebar{border-right:none; border-left:1px solid var(--border)}
 body:not(.theme-dark) .tnode.on .tact:hover{background:rgba(255,255,255,.22); color:#fff}
 .tnode .tact svg{width:12px;height:12px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
 #marquee{position:fixed; z-index:80; border:1px solid var(--accent); background:var(--accent-soft); pointer-events:none; display:none}
+/* browsing a linked VPP: read-only, visually set apart from your own files */
+body.browsing-ref #rows .row .fn{color:var(--text-2)}
+body.browsing-ref #colHead{background:var(--accent-soft); color:var(--text-2)}
+body.browsing-ref #colHead::after{content:"linked · read-only"; position:absolute; right:10px; font:400 10px var(--mono); color:var(--text-3)}
+body.browsing-ref #colHead{position:relative}
 .conn3d{display:flex; flex-wrap:wrap; gap:3px; align-items:center; margin:2px 0 6px; flex:none}
 .chip3d{
   height:18px; padding:0 7px; font:400 10.5px var(--mono); cursor:pointer;
@@ -607,25 +612,35 @@ function parseVpp(buf){
   }
   return {entries,declared:dv.getUint32(12,true),computed:dataOff,truncated:dataOff>buf.byteLength};
 }
-function buildVpp(list){
+/* Assemble a VPP as Blob parts rather than one contiguous buffer. A single
+   allocation the size of the whole archive fails on large sets (the file
+   bytes are already in memory, so it needs roughly double), while Blob parts
+   need no contiguous block and can spill to disk. */
+function buildVppBlob(list){
   const num=list.length;
   let total=align2048(SECTOR+64*num);
   for(const e of list)total+=align2048(e.data.length);
-  if(total>0xFFFFFFFF)throw new Error("This VPP would exceed 4 GB. The size field in the format is 32-bit.");
-  const out=new Uint8Array(total);
-  const dv=new DataView(out.buffer);
+  if(total>0xFFFFFFFF)throw new Error("This VPP would be "+fmtBytes(total)+", over the 4 GB the format can address.");
+  const headLen=align2048(SECTOR+64*num);
+  const head=new Uint8Array(headLen);
+  const dv=new DataView(head.buffer);
   dv.setUint32(0,VPP_SIG,true); dv.setUint32(4,1,true);
   dv.setUint32(8,num,true); dv.setUint32(12,total,true);
   let off=SECTOR;
   for(const e of list){
     const n=e.name.slice(0,NAME_MAX);
-    for(let i=0;i<n.length;i++)out[off+i]=n.charCodeAt(i)&0xFF;
+    for(let i=0;i<n.length;i++)head[off+i]=n.charCodeAt(i)&0xFF;
     dv.setUint32(off+60,e.data.length,true);
     off+=64;
   }
-  off=align2048(SECTOR+64*num);
-  for(const e of list){ out.set(e.data,off); off+=align2048(e.data.length); }
-  return out;
+  const zeros=new Uint8Array(SECTOR);
+  const parts=[head];
+  for(const e of list){
+    parts.push(e.data);
+    const pad=align2048(e.data.length)-e.data.length;
+    if(pad)parts.push(zeros.subarray(0,pad));
+  }
+  return {blob:new Blob(parts,{type:"application/octet-stream"}),total};
 }
 const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
 function crc32(d){let c=0xFFFFFFFF;for(let i=0;i<d.length;i++)c=CRC_T[(c^d[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
@@ -2506,10 +2521,30 @@ const state={
   name:null, srcBytes:null, entries:[], dirty:false,
   sel:new Set(), anchor:null, cursor:null,
   sortKey:null, sortDir:1, filter:"", typeFilter:null,
+  refs:[], viewRef:null,
 };
 let nextId=1;
-const entryData=e=>e.data?e.data:state.srcBytes.subarray(e.offset,e.offset+e.size);
-const byId=id=>state.entries.find(e=>e.id===id);
+const entryData=e=>e.data?e.data:(e.refId!=null?new Uint8Array(0):state.srcBytes.subarray(e.offset,e.offset+e.size));
+const byId=id=>{
+  const own=state.entries.find(e=>e.id===id);
+  if(own)return own;
+  for(const r of state.refs){const h=r.entries.find(e=>e.id===id);if(h)return h;}
+  return null;
+};
+/* files shown in the list: the open VPP, or a linked one when browsing it */
+const activeEntries=()=>state.viewRef==null?state.entries:(state.refs[state.viewRef]?state.refs[state.viewRef].entries:[]);
+const viewingRef=()=>state.viewRef!=null;
+/* linked entries hold only a directory record until something needs the bytes */
+function ensureData(e){
+  if(!e||e.data)return Promise.resolve(e);
+  if(e.refId==null)return Promise.resolve(e);
+  if(e._loading)return e._loading;
+  e._loading=fetch(bridgeUrl("/vpp/slice?id="+e.refId+"&off="+e.offset+"&len="+e.size))
+    .then(r=>{if(!r.ok)throw new Error("slice");return r.arrayBuffer();})
+    .then(ab=>{e.data=new Uint8Array(ab);probeInfo(e);delete e._loading;return e;})
+    .catch(err=>{delete e._loading;throw err;});
+  return e._loading;
+}
 const decodeCache=new Map(); // id → {kind, value}
 
 const extOf=n=>{const i=n.lastIndexOf(".");return i<0?"":n.slice(i+1).toLowerCase();};
@@ -2657,6 +2692,7 @@ function loadArchive(name,buf){
   state.srcBytes=new Uint8Array(buf);
   state.entries=parsed.entries.map(e=>({name:e.name,size:e.size,offset:e.offset,data:null,id:nextId++}));
   state.dirty=false; state.sel.clear(); state.sortKey=null; state.filter=""; state.typeFilter=null;
+  state.viewRef=null; /* linked VPPs stay linked across opens */
   decodeCache.clear();
   undoStack.length=0; redoStack.length=0;
   $("search").value="";
@@ -2671,6 +2707,7 @@ function newArchive(){
   closeLightbox();
   state.name="untitled.vpp"; state.srcBytes=null; state.entries=[]; state.saveId=null;
   state.dirty=false; state.sel.clear(); state.sortKey=null; state.filter=""; state.typeFilter=null;
+  state.viewRef=null;
   decodeCache.clear();
   undoStack.length=0; redoStack.length=0;
   $("search").value="";
@@ -2735,6 +2772,7 @@ function addFiles(fileList){
   });
 }
 function removeSelected(){
+  if(viewingRef()){toast("Linked VPPs are read-only",true);return;}
   if(!state.sel.size)return;
   pushUndo();
   const n=state.sel.size;
@@ -2744,6 +2782,87 @@ function removeSelected(){
   refreshAll();
   toast(plural(n,"file")+" removed");
 }
+/* ---- linked VPPs: read-only asset sources for previews ---- */
+function refAlready(id){return state.refs.some(r=>r.srcId===id);}
+function linkVpp(srcId,name,quiet){
+  if(refAlready(srcId))return Promise.resolve(null);
+  return bridgeJson("/vpp/dir?id="+srcId).then(j=>{
+    const list=(j&&j.list)||[];
+    const ref={name:name||("linked "+srcId),srcId,entries:[]};
+    for(const f of list){
+      const e={name:f.name,size:f.size,offset:f.off,data:null,refId:srcId,id:nextId++};
+      e.tkey=typeKeyOf(e.name);
+      ref.entries.push(e);
+    }
+    state.refs.push(ref);
+    if(!quiet)toast("Linked "+ref.name+" · "+plural(ref.entries.length,"file")+" available for previews");
+    refreshAll();
+    return ref;
+  }).catch(()=>{if(!quiet)toast("Could not read that VPP",true);return null;});
+}
+function linkVppDialog(){
+  if(!BRIDGE){toast("Linking needs the desktop app",true);return;}
+  bridgeJson("/dialog/open").then(j=>{
+    if(j.cancel)return;
+    linkVpp(j.id,j.name,false);
+  }).catch(()=>toast("Open dialog failed",true));
+}
+function unlinkRef(i){
+  const r=state.refs[i];
+  if(!r)return;
+  for(const e of r.entries)decodeCache.delete(e.id);
+  state.refs.splice(i,1);
+  if(state.viewRef===i)state.viewRef=null;
+  else if(state.viewRef!=null&&state.viewRef>i)state.viewRef--;
+  state.sel.clear();
+  toast("Unlinked "+r.name);
+  refreshAll();renderPreview();
+}
+function linkGameAssets(manual){
+  if(!BRIDGE){if(manual)toast("Linking needs the desktop app",true);return;}
+  const q=APP_SETTINGS.gameDir?"?dir="+encodeURIComponent(APP_SETTINGS.gameDir):"";
+  bridgeJson("/game/vpps"+q).then(j=>{
+    if(!j||!j.found){
+      if(manual)toast("Red Faction install not found · link VPPs manually from Tools",true);
+      return;
+    }
+    APP_SETTINGS.gameDir=j.dir;saveSettings();
+    const todo=(j.list||[]).filter(v=>!refAlready(v.id));
+    if(!todo.length){if(manual)toast("Game assets are already linked");return;}
+    Promise.all(todo.map(v=>linkVpp(v.id,v.name,true))).then(()=>{
+      toast("Linked "+plural(todo.length,"game VPP")+" from "+j.dir);
+      refreshAll();
+    });
+  }).catch(()=>{if(manual)toast("Could not reach the game folder",true);});
+}
+/* find a file across the open VPP first, then the linked ones */
+function findAsset(pred){
+  const own=state.entries.find(pred);
+  if(own)return own;
+  for(const r of state.refs){const h=r.entries.find(pred);if(h)return h;}
+  return null;
+}
+function copyRefEntries(list){
+  if(!list.length)return;
+  Promise.all(list.map(ensureData)).then(()=>{
+    pushUndo();
+    let added=0,skipped=0;
+    for(const e of list){
+      if(!e.data)continue;
+      if(state.entries.some(x=>x.name.toLowerCase()===e.name.toLowerCase())){skipped++;continue;}
+      const ne={name:e.name,size:e.data.length,offset:null,data:new Uint8Array(e.data),id:nextId++};
+      probeInfo(ne);
+      state.entries.push(ne);
+      added++;
+    }
+    if(added){
+      state.dirty=true;
+      state.viewRef=null;state.typeFilter=null;
+      refreshAll();
+      toast(added+" copied into "+state.name+(skipped?" · "+skipped+" already here":"")+" · Ctrl S to save");
+    }else toast(skipped?"Already in this VPP":"Nothing copied",true);
+  }).catch(()=>toast("Could not read the linked file",true));
+}
 function copySelectedNames(){
   if(!state.sel.size)return;
   const names=state.entries.filter(e=>state.sel.has(e.id)).map(e=>e.name).join("\n");
@@ -2752,6 +2871,7 @@ function copySelectedNames(){
     .catch(()=>toast("Clipboard unavailable",true));
 }
 function duplicateSelected(){
+  if(viewingRef()){toast("Linked VPPs are read-only",true);return;}
   if(!state.sel.size)return;
   pushUndo();
   const list=state.entries.filter(e=>state.sel.has(e.id));
@@ -2774,6 +2894,7 @@ function duplicateSelected(){
   }
 }
 function moveSelected(dir){
+  if(viewingRef())return;
   if(state.sel.size!==1||state.sortKey)return;
   const id=[...state.sel][0];
   const i=state.entries.findIndex(e=>e.id===id);
@@ -2785,10 +2906,16 @@ function moveSelected(dir){
   refreshAll();
   scrollToRow(id);
 }
-function commitSaved(out,nm){
-  state.srcBytes=out;
+/* The written file was streamed out in pieces, so there is no consolidated
+   buffer to keep. Give every entry its own bytes (subarray views cost
+   nothing) and record where each one landed in the file just written. */
+function commitSaved(nm){
+  const src=state.srcBytes;
+  for(const e of state.entries)
+    if(!e.data&&src&&e.offset!=null)e.data=src.subarray(e.offset,e.offset+e.size);
+  state.srcBytes=null;
   let off=align2048(SECTOR+64*state.entries.length);
-  for(const e of state.entries){e.offset=off;e.data=null;off+=align2048(e.size);}
+  for(const e of state.entries){e.offset=off;off+=align2048(e.size);}
   state.dirty=false;
   if(nm)state.name=nm;
   refreshAll();
@@ -2796,15 +2923,15 @@ function commitSaved(out,nm){
 const bakDone=new Set(); /* one .bak per file per session, made on first overwrite */
 let autosaveTimer=0;
 const autosaveOn=()=>(APP_SETTINGS.autosave??1)===1;
-function bridgeSaveTo(id,nm,out,quiet){
+function bridgeSaveTo(id,nm,blob,quiet){
   const bak=!bakDone.has(id);
-  return fetch(bridgeUrl("/save?id="+id+(bak?"&bak=1":"")),{method:"POST",body:out})
+  return fetch(bridgeUrl("/save?id="+id+(bak?"&bak=1":"")),{method:"POST",body:blob})
     .then(r=>{if(!r.ok)throw 0;return r.json();})
     .then(()=>{
       bakDone.add(id);
       state.saveId=id;
-      commitSaved(out,nm);
-      if(!quiet)toast("Saved "+state.name+" · "+fmtBytes(out.length));
+      commitSaved(nm);
+      if(!quiet)toast("Saved "+state.name+" · "+fmtBytes(blob.size));
     })
     .catch(()=>toast("Save failed. Is the file writable?",true));
 }
@@ -2816,21 +2943,27 @@ function saveArchive(forceDialog,quiet){
     state.name=nv;
     renderChrome();
   }
-  let out;
-  try{ out=buildVpp(state.entries.map(e=>({name:e.name,data:entryData(e)}))); }
-  catch(err){ toast(err.message,true); return; }
+  let built;
+  try{ built=buildVppBlob(state.entries.map(e=>({name:e.name,data:entryData(e)}))); }
+  catch(err){
+    const why=(err&&/allocation|memory/i.test(err.message||""))
+      ?"Not enough memory to build this VPP. Try saving fewer files at once."
+      :(err&&err.message)||"Could not build this VPP";
+    toast(why,true);
+    return;
+  }
   const nm=state.name.toLowerCase().endsWith(".vpp")?state.name:state.name+".vpp";
   if(BRIDGE){
-    if(state.saveId!=null&&!forceDialog){bridgeSaveTo(state.saveId,null,out,quiet);return;}
+    if(state.saveId!=null&&!forceDialog){bridgeSaveTo(state.saveId,null,built.blob,quiet);return;}
     bridgeJson("/dialog/saveas?name="+encodeURIComponent(nm)).then(j=>{
       if(j.cancel)return;
-      bridgeSaveTo(j.id,j.name,out);
+      bridgeSaveTo(j.id,j.name,built.blob);
     }).catch(()=>toast("Save dialog failed",true));
     return;
   }
-  download(out,nm,"application/octet-stream");
-  commitSaved(out,null);
-  toast("Saved "+nm+" · "+fmtBytes(out.length));
+  download(built.blob,nm,"application/octet-stream");
+  commitSaved(null);
+  toast("Saved "+nm+" · "+fmtBytes(built.total));
 }
 function bridgeLoad(id,name){
   fetch(bridgeUrl("/data?id="+id))
@@ -3085,7 +3218,7 @@ function computeChecks(){
    Rendering: tree, list, chrome
    ================================================================ */
 function visible(){
-  let list=state.entries.map((e,i)=>({e,i}));
+  let list=activeEntries().map((e,i)=>({e,i}));
   if(state.typeFilter)list=list.filter(x=>x.e.tkey===state.typeFilter);
   if(state.filter){
     const f=state.filter.toLowerCase();
@@ -3105,22 +3238,24 @@ function visible(){
 function renderTree(){
   const t=$("typeTree");
   t.innerHTML="";
-  if(!state.entries.length)return;
+  if(!state.entries.length&&!state.refs.length)return;
   const counts=new Map();
-  for(const e of state.entries)counts.set(e.tkey,(counts.get(e.tkey)||0)+1);
+  for(const e of activeEntries())counts.set(e.tkey,(counts.get(e.tkey)||0)+1);
   const order=["rfl","tga","dds","pcx","vbm","v3m","v3c","rfa","mvf","vf","vfx","audio","text","ani","pof","other"];
   const IC_SEL='<svg viewBox="0 0 24 24"><path d="M4 12.5l5 5 11-11"/></svg>';
   const IC_DDS='<svg viewBox="0 0 24 24"><path d="M8 3L4 7l4 4M4 7h13M16 21l4-4-4-4M20 17H7"/></svg>';
   function selectType(k){
     state.typeFilter=k;
-    state.sel=new Set(state.entries.filter(e=>!k||e.tkey===k).map(e=>e.id));
+    state.sel=new Set(activeEntries().filter(e=>!k||e.tkey===k).map(e=>e.id));
     state.anchor=state.sel.size?[...state.sel][0]:null;
     refreshList();renderPreview();
   }
   const all=document.createElement("div");
-  all.className="tnode all"+(state.typeFilter?"":" on");
-  all.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">All files</span><button class="tact tsel" title="Select all files">'+IC_SEL+'</button><span class="cnt">'+state.entries.length+'</span>';
-  all.addEventListener("click",()=>{state.typeFilter=null;refreshList();});
+  all.className="tnode all"+(state.typeFilter||viewingRef()?"":" on");
+  all.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">'
+    +(viewingRef()?esc(state.refs[state.viewRef].name):"All files")
+    +'</span><button class="tact tsel" title="Select all files">'+IC_SEL+'</button><span class="cnt">'+activeEntries().length+'</span>';
+  all.addEventListener("click",()=>{state.viewRef=null;state.typeFilter=null;state.sel.clear();refreshList();renderPreview();});
   all.querySelector(".tact").addEventListener("click",ev=>{ev.stopPropagation();selectType(null);});
   t.appendChild(all);
   for(const k of order){
@@ -3135,6 +3270,29 @@ function renderTree(){
     const dds=d.querySelector(".tdds");
     if(dds)dds.addEventListener("click",ev=>{ev.stopPropagation();tgaEntriesToDds(state.entries.filter(e=>e.tkey==="tga"));});
     t.appendChild(d);
+  }
+  /* linked VPPs: browsable, read-only sources for previews */
+  if(state.refs.length){
+    const hd=document.createElement("div");
+    hd.className="es-h";
+    hd.style.cssText="margin:8px 0 3px 7px";
+    hd.textContent="Linked for previews";
+    t.appendChild(hd);
+    state.refs.forEach((r,i)=>{
+      const d=document.createElement("div");
+      d.className="tnode"+(state.viewRef===i?" on":"");
+      d.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1"/></svg></span>'
+        +'<span class="lbl" style="color:var(--text-2)">'+esc(r.name)+'</span>'
+        +'<button class="tact" title="Stop using this VPP for previews"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
+        +'<span class="cnt">'+r.entries.length+'</span>';
+      d.addEventListener("click",()=>{
+        state.viewRef=state.viewRef===i?null:i;
+        state.typeFilter=null;state.sel.clear();
+        refreshList();renderPreview();
+      });
+      d.querySelector(".tact").addEventListener("click",ev=>{ev.stopPropagation();unlinkRef(i);});
+      t.appendChild(d);
+    });
   }
 }
 function highlightName(name){
@@ -3187,10 +3345,13 @@ function renderChrome(){
   const {checks,total}=computeChecks();
   $("docStats").textContent=has&&state.entries.length?"· "+plural(state.entries.length,"file")+" · "+fmtBytes(total):"";
   document.title=(state.dirty?"● ":"")+(has?state.name+" · ":"")+"VPP Forge";
+  const ro=viewingRef();
   $("btnSave").disabled=!has||!state.entries.length;
   $("btnSaveAs").disabled=!has||!state.entries.length;
+  $("btnAdd").disabled=ro;
+  document.body.classList.toggle("browsing-ref",ro);
   $("btnExtract").disabled=!state.sel.size;
-  $("btnRemove").disabled=!state.sel.size;
+  $("btnRemove").disabled=!state.sel.size||ro;
   let payload=0;for(const e of state.entries)payload+=e.size;
   const vis=visible().length;
   const filtered=state.typeFilter||state.filter;
@@ -3294,7 +3455,21 @@ function renderPreview(){
   const m=TYPE_META[e.tkey];
   nameEl.textContent=e.name;
   const ns=sect(e.size),pad=align2048(e.size)-e.size;
-  meta.textContent=m.list+" · "+fmtBytes(e.size)+" · "+plural(ns,"sector")+" · "+fmtBytes(pad)+" pad"+(e.offset!=null?" · 0x"+e.offset.toString(16).toUpperCase():" · pending save");
+  meta.textContent=m.list+" · "+fmtBytes(e.size)+" · "+plural(ns,"sector")+" · "+fmtBytes(pad)+" pad"
+    +(e.refId!=null?" · linked, read-only":(e.offset!=null?" · 0x"+e.offset.toString(16).toUpperCase():" · pending save"));
+  if(e.refId!=null&&!e.data){
+    /* linked file: pull its bytes, then draw for real */
+    body.className="center";
+    body.innerHTML='<div class="placeholder"><div class="t">Loading…</div><div>'+esc(e.name)+'</div></div>';
+    const want=e.id;
+    ensureData(e).then(()=>{
+      if([...state.sel].length===1&&[...state.sel][0]===want)renderPreview();
+    }).catch(()=>{
+      if([...state.sel].length===1&&[...state.sel][0]===want)
+        body.innerHTML='<div class="placeholder"><div class="t" style="color:var(--warn)">Could not read this file</div></div>';
+    });
+    return;
+  }
   renderContent(body,e,false,acts);
 }
 function renderContent(body,e,big,acts){
@@ -3648,12 +3823,17 @@ function render3d(body,e,big,r3opts){
   const model=getDecoded(e,isVfx?"vfx":"v3m");
   /* character rig: RFAs in this VPP whose bone count matches the skeleton */
   const isChar=!isVfx&&model.isSkeletal&&model.bones&&model.bones.length>0;
-  /* animations may drive fewer bones than the rig has (bones map by index) */
-  const rfaList=isChar?state.entries.filter(x=>{
-    if(x.tkey!=="rfa"&&x.tkey!=="mvf")return false;
-    try{const h=parseRfaHeader(entryData(x));return h&&h.bones>0&&h.bones<=model.bones.length;}
-    catch(_){return false;}
-  }):[];
+  /* animations may drive fewer bones than the rig has (bones map by index).
+     Linked entries have no bytes yet, so they are listed and checked on pick. */
+  const rfaList=isChar?[
+    ...state.entries.filter(x=>{
+      if(x.tkey!=="rfa"&&x.tkey!=="mvf")return false;
+      try{const h=parseRfaHeader(entryData(x));return h&&h.bones>0&&h.bones<=model.bones.length;}
+      catch(_){return false;}
+    }),
+    ...state.refs.flatMap(r=>r.entries.filter(x=>x.tkey==="rfa"||x.tkey==="mvf")
+      .map(x=>Object.assign(x,{_refName:r.name})))
+  ]:[];
   const st0=computeModelStats(model,0);
   const bar=document.createElement("div");bar.className="viewer-bar";
   const statLine=document.createElement("span");
@@ -3719,7 +3899,7 @@ function render3d(body,e,big,r3opts){
       animSel.title="Play a character animation from this VPP";
       animSel.style.cssText="height:20px;max-width:190px;background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:4px;font:400 11px var(--sans)";
       animSel.innerHTML='<option value="">Bind pose</option>'
-        +rfaList.map(x=>'<option value="'+x.id+'">'+esc(x.name)+"</option>").join("");
+        +rfaList.map(x=>'<option value="'+x.id+'">'+esc(x.name)+(x._refName?" · "+esc(x._refName):"")+"</option>").join("");
       bar.appendChild(animSel);
       playBtn.disabled=true;scrub.disabled=true;
       animSel.addEventListener("change",()=>{
@@ -3731,14 +3911,21 @@ function render3d(body,e,big,r3opts){
         }
         const ent=byId(+animSel.value);
         if(!ent)return;
-        try{
+        ensureData(ent).then(()=>{
           const anim=getDecoded(ent,"rfa");
+          if(anim.numBones>model.bones.length)
+            throw new Error("built for a "+anim.numBones+"-bone rig, this one has "+model.bones.length);
           dur=anim.duration;t0=anim.startT;
           timeLbl.textContent="0.00 / "+dur.toFixed(2)+"s";
           playBtn.disabled=false;scrub.disabled=false;
           live3d.setRfa(anim);
           live3d.play();
-        }catch(err){toast("Could not read "+ent.name+": "+err.message,true);}
+        }).catch(err=>{
+          toast(ent.name+": "+(err&&err.message?err.message:"could not be read"),true);
+          animSel.value="";
+          if(live3d)live3d.setRfa(null);
+          playBtn.disabled=true;scrub.disabled=true;
+        });
       });
     }
     bar.appendChild(playBtn);bar.appendChild(scrub);bar.appendChild(timeLbl);
@@ -3759,7 +3946,7 @@ function render3d(body,e,big,r3opts){
   holder.appendChild(hint);
   const texEntryFor=tn=>{
     const st=stemOf(tn);
-    return state.entries.find(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm"||x.tkey==="pcx")&&stemOf(x.name)===st)||null;
+    return findAsset(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm"||x.tkey==="pcx")&&stemOf(x.name)===st)||null;
   };
   wrapOuter.appendChild(bar);
   if(model.textureNames.length){
@@ -3799,7 +3986,14 @@ function render3d(body,e,big,r3opts){
   loading.style.cssText="position:absolute;inset:0;display:flex;align-items:center;justify-content:center";
   loading.innerHTML='<div class="t">Loading 3D engine…</div>';
   holder.appendChild(loading);
-  loadThree().then(()=>{
+  /* pull any textures that live in linked VPPs before building, since the
+     texture lookup inside the builder is synchronous */
+  const prefetch=(model.textureNames||[]).map(tn=>{
+    const st=stemOf(tn);
+    const hit=findAsset(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm"||x.tkey==="pcx")&&stemOf(x.name)===st);
+    return (hit&&hit.refId!=null&&!hit.data)?ensureData(hit).catch(()=>null):null;
+  }).filter(Boolean);
+  Promise.all([loadThree(),...prefetch]).then(()=>{
     loading.remove();
     if(!body.isConnected)return;
     live3d=makeViewer3d(holder,model,{wireBtn:wire,resetBtn:reset,lodSeg,onStats:refreshPills,engine,
@@ -3846,10 +4040,12 @@ function makeViewer3d(holder,model,ui){
     const st=stemOf(name);
     if(!st)return null;
     if(texCache.has(st))return texCache.get(st);
-    let entry=state.entries.find(x=>x.name.toLowerCase()===st+".dds")
-           ||state.entries.find(x=>x.name.toLowerCase()===st+".tga")
-           ||state.entries.find(x=>x.name.toLowerCase()===st+".vbm")
-           ||state.entries.find(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm")&&stemOf(x.name)===st);
+    /* open VPP wins, then linked ones, mirroring how the game overrides stock */
+    let entry=findAsset(x=>x.name.toLowerCase()===st+".dds")
+           ||findAsset(x=>x.name.toLowerCase()===st+".tga")
+           ||findAsset(x=>x.name.toLowerCase()===st+".vbm")
+           ||findAsset(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm")&&stemOf(x.name)===st);
+    if(entry&&!entry.data&&entry.refId!=null)entry=null; /* not fetched yet */
     let tex=null;
     if(entry){
       const tc=textureCanvasFor(entry);
@@ -4137,6 +4333,14 @@ window.addEventListener("blur",()=>{closeMenu();closePop();});
 function contextItems(){
   const n=state.sel.size;
   if(!n)return [];
+  if(viewingRef()){
+    const picked=[...state.sel].map(byId).filter(Boolean);
+    return [
+      {label:n===1?"Copy into this VPP":"Copy "+n+" files into this VPP",fn:()=>copyRefEntries(picked)},
+      {label:n===1?"Extract file…":"Extract "+n+" files…",icon:IC.extract,fn:()=>extractIds(state.sel)},
+      {label:n===1?"Copy name":"Copy "+n+" names",fn:copySelectedNames},
+    ];
+  }
   const one=n===1;
   const sorted=!!state.sortKey;
   const e=one?byId([...state.sel][0]):null;
@@ -4409,6 +4613,12 @@ function menuItems(which){
       {label:"Write view order to VPP",icon:IC.order,off:!sorted,fn:applyViewOrder},
       "-",
       {label:"Replace all TGA with DDS",off:!state.entries.some(e2=>e2.tkey==="tga"),fn:()=>tgaEntriesToDds(state.entries.filter(e2=>e2.tkey==="tga"))},
+      "-",
+      {label:"Link a VPP for previews…",off:!BRIDGE,fn:linkVppDialog},
+      {label:"Link Red Faction assets",off:!BRIDGE,fn:()=>linkGameAssets(true)},
+      ...(state.refs.length?[{label:"Unlink all ("+state.refs.length+")",fn:()=>{
+        while(state.refs.length)unlinkRef(0);
+      }}]:[]),
       {label:"VPP checks…",off:!checks.length,fn:()=>{
         openPop('<h3>VPP checks</h3><ul>'+checks.map(c=>'<li class="'+c[0]+'">'+esc(c[1])+"</li>").join("")+"</ul>",menuBtn("tools"));
       }},
@@ -4612,6 +4822,7 @@ document.querySelector("#colHead").addEventListener("click",ev=>{
   renderRows();
 });
 function beginRename(id){
+  if(viewingRef()){toast("Linked VPPs are read-only",true);return;}
   const e=byId(id);if(!e)return;
   const r=$("rows").querySelector('.row[data-id="'+id+'"]');
   if(!r)return;
@@ -4939,6 +5150,8 @@ if(BRIDGE){
   if(BRIDGE.installed)showWelcome(true);
   /* quiet check a few seconds in, so it never delays opening a file */
   setTimeout(()=>checkForUpdates(false),4000);
+  /* link the game's own VPPs so stock textures resolve without setup */
+  setTimeout(()=>{if((APP_SETTINGS.linkGame??1)===1)linkGameAssets(false);},1200);
 }
 </script>
 </body>
