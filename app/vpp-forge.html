@@ -553,7 +553,8 @@ body.dragging.no-doc #dropVeil{display:none}
   <div id="dropCard">
     <svg viewBox="0 0 24 24"><path d="M12 3v10m0 0l-4-4m4 4l4-4M4 15v4a2 2 0 002 2h12a2 2 0 002-2v-4"/></svg>
     <b>Drop a .vpp to open it</b>
-    <small>or drop loose files to start a new VPP from them</small>
+    <small>drop one model, effect or texture to view it on its own</small>
+    <small>or several loose files to start a new VPP from them</small>
   </div>
 </div>
 
@@ -2521,7 +2522,7 @@ const state={
   name:null, srcBytes:null, entries:[], dirty:false,
   sel:new Set(), anchor:null, cursor:null,
   sortKey:null, sortDir:1, filter:"", typeFilter:null,
-  refs:[], viewRef:null,
+  refs:[], viewRef:null, loose:false,
 };
 let nextId=1;
 const entryData=e=>e.data?e.data:(e.refId!=null?new Uint8Array(0):state.srcBytes.subarray(e.offset,e.offset+e.size));
@@ -2693,6 +2694,7 @@ function loadArchive(name,buf){
   state.entries=parsed.entries.map(e=>({name:e.name,size:e.size,offset:e.offset,data:null,id:nextId++}));
   state.dirty=false; state.sel.clear(); state.sortKey=null; state.filter=""; state.typeFilter=null;
   state.viewRef=null; /* linked VPPs stay linked across opens */
+  state.loose=false;
   decodeCache.clear();
   undoStack.length=0; redoStack.length=0;
   $("search").value="";
@@ -2707,7 +2709,7 @@ function newArchive(){
   closeLightbox();
   state.name="untitled.vpp"; state.srcBytes=null; state.entries=[]; state.saveId=null;
   state.dirty=false; state.sel.clear(); state.sortKey=null; state.filter=""; state.typeFilter=null;
-  state.viewRef=null;
+  state.viewRef=null; state.loose=false;
   decodeCache.clear();
   undoStack.length=0; redoStack.length=0;
   $("search").value="";
@@ -2936,6 +2938,7 @@ function bridgeSaveTo(id,nm,blob,quiet){
     .catch(()=>toast("Save failed. Is the file writable?",true));
 }
 function saveArchive(forceDialog,quiet){
+  if(state.loose){toast("This is a single file, not a VPP · use Extract to save a copy",true);return;}
   if(state.name===null||!state.entries.length)return;
   if(!BRIDGE&&state.name==="untitled.vpp"){
     const nv=sanitizeVppName(window.prompt("Name this VPP:","untitled.vpp"));
@@ -2968,8 +2971,32 @@ function saveArchive(forceDialog,quiet){
 function bridgeLoad(id,name){
   fetch(bridgeUrl("/data?id="+id))
     .then(r=>{if(!r.ok)throw 0;return r.arrayBuffer();})
-    .then(ab=>loadArchive(name,ab,{saveId:id}))
+    .then(ab=>{
+      /* a VPP opens as an archive; anything else opens as a single asset */
+      const isVpp=ab.byteLength>=4&&new DataView(ab).getUint32(0,true)===VPP_SIG;
+      if(isVpp)loadArchive(name,ab,{saveId:id});
+      else loadLooseFile(name,ab);
+    })
     .catch(()=>toast("Could not read the file",true));
+}
+/* View one file on its own, with no VPP: the same viewers, minus editing.
+   Models still find their textures through any linked VPPs. */
+function loadLooseFile(name,ab){
+  if(state.dirty&&!confirm("Discard unsaved changes?"))return;
+  closeLightbox();
+  const bytes=new Uint8Array(ab);
+  const e={name,size:bytes.length,offset:null,data:bytes,id:nextId++};
+  probeInfo(e);
+  state.name=name; state.srcBytes=null; state.saveId=null; state.loose=true;
+  state.entries=[e];
+  state.dirty=false;
+  state.sel=new Set([e.id]); state.anchor=e.id; state.cursor=e.id;
+  state.sortKey=null; state.filter=""; state.typeFilter=null; state.viewRef=null;
+  decodeCache.clear();
+  undoStack.length=0; redoStack.length=0;
+  $("search").value="";
+  refreshAll();
+  toast("Viewing "+name);
 }
 function openArchiveDialog(){
   if(!BRIDGE){$("fileOpen").click();return;}
@@ -3343,13 +3370,15 @@ function renderChrome(){
   chip.querySelector(".fname").className="fname"+(has?"":" empty");
   chip.querySelector(".fname").textContent=has?state.name:"No VPP open";
   const {checks,total}=computeChecks();
-  $("docStats").textContent=has&&state.entries.length?"· "+plural(state.entries.length,"file")+" · "+fmtBytes(total):"";
+  $("docStats").textContent=state.loose?"· single file":
+    (has&&state.entries.length?"· "+plural(state.entries.length,"file")+" · "+fmtBytes(total):"");
   document.title=(state.dirty?"● ":"")+(has?state.name+" · ":"")+"VPP Forge";
-  const ro=viewingRef();
-  $("btnSave").disabled=!has||!state.entries.length;
-  $("btnSaveAs").disabled=!has||!state.entries.length;
+  const ro=viewingRef()||state.loose;
+  $("btnSave").disabled=!has||!state.entries.length||state.loose;
+  $("btnSaveAs").disabled=!has||!state.entries.length||state.loose;
   $("btnAdd").disabled=ro;
-  document.body.classList.toggle("browsing-ref",ro);
+  document.body.classList.toggle("browsing-ref",viewingRef());
+  document.body.classList.toggle("loose-file",!!state.loose);
   $("btnExtract").disabled=!state.sel.size;
   $("btnRemove").disabled=!state.sel.size||ro;
   let payload=0;for(const e of state.entries)payload+=e.size;
@@ -4868,7 +4897,11 @@ $("btnExtract").addEventListener("click",()=>extractIds(state.sel));
 $("btnRemove").addEventListener("click",removeSelected);
 $("fileOpen").addEventListener("change",ev=>{
   const f=ev.target.files[0];
-  if(f)f.arrayBuffer().then(ab=>loadArchive(f.name,ab));
+  if(f)f.arrayBuffer().then(ab=>{
+    const isVpp=ab.byteLength>=4&&new DataView(ab).getUint32(0,true)===VPP_SIG;
+    if(isVpp)loadArchive(f.name,ab);
+    else loadLooseFile(f.name,ab);
+  });
   ev.target.value="";
 });
 $("fileAdd").addEventListener("change",ev=>{addFiles([...ev.target.files]);ev.target.value="";});
@@ -4959,6 +4992,11 @@ document.addEventListener("drop",ev=>{
   const files=[...ev.dataTransfer.files];
   if(!files.length)return;
   const vpps=files.filter(f=>/\.vpp$/i.test(f.name));
+  /* one loose asset with nothing open: view it on its own */
+  if(!vpps.length&&files.length===1&&(state.name===null||state.loose)){
+    files[0].arrayBuffer().then(ab=>loadLooseFile(files[0].name,ab));
+    return;
+  }
   if(vpps.length===1&&files.length===1){
     vpps[0].arrayBuffer().then(ab=>loadArchive(vpps[0].name,ab));
   }else if(vpps.length&&state.name===null){

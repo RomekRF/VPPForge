@@ -790,6 +790,54 @@ static void write_associations(const wchar_t *exe) {
     _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\" \"%%1\"", exe); buf[MAX_PATH * 2 + 15] = 0;
     reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive\\shell\\open\\command", NULL, buf);
 }
+/* Red Faction asset types, so a loose .vbm or .v3m opens in the viewer.
+   Only formats specific to the game: .tga, .wav and friends are left alone
+   because they belong to whatever the user already uses for them.
+   Any previous handler is remembered so uninstall can hand it back. */
+static const wchar_t *ASSET_EXTS[] = { L".vbm", L".v3m", L".v3c", L".vfx", L".rfa", L".mvf", L".vf" };
+#define ASSET_EXT_COUNT (sizeof ASSET_EXTS / sizeof *ASSET_EXTS)
+
+static void write_asset_associations(const wchar_t *exe) {
+    wchar_t buf[MAX_PATH * 2 + 16];
+    size_t i;
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset", NULL, L"Red Faction asset");
+    _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\",0", exe); buf[MAX_PATH * 2 + 15] = 0;
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset\\DefaultIcon", NULL, buf);
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset\\shell\\open", NULL, L"View in VPP Forge");
+    _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\" \"%%1\"", exe); buf[MAX_PATH * 2 + 15] = 0;
+    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset\\shell\\open\\command", NULL, buf);
+    for (i = 0; i < ASSET_EXT_COUNT; i++) {
+        wchar_t key[160], prev[160] = L"";
+        DWORD sz = sizeof prev;
+        _snwprintf(key, 159, L"Software\\Classes\\%s", ASSET_EXTS[i]); key[159] = 0;
+        /* remember whoever had it, unless it was already us */
+        if (RegGetValueW(HKEY_CURRENT_USER, key, NULL, RRF_RT_REG_SZ, NULL, prev, &sz) == ERROR_SUCCESS &&
+            prev[0] && wcscmp(prev, L"VPPForge.Asset") != 0) {
+            wchar_t bk[200];
+            _snwprintf(bk, 199, L"Software\\VPPForge\\PrevAssoc"); bk[199] = 0;
+            reg_set_str(HKEY_CURRENT_USER, bk, ASSET_EXTS[i], prev);
+        }
+        reg_set_str(HKEY_CURRENT_USER, key, NULL, L"VPPForge.Asset");
+    }
+}
+
+static void remove_asset_associations(void) {
+    size_t i;
+    for (i = 0; i < ASSET_EXT_COUNT; i++) {
+        wchar_t key[160], cur[160] = L"", prev[160] = L"";
+        DWORD sz = sizeof cur, psz = sizeof prev;
+        _snwprintf(key, 159, L"Software\\Classes\\%s", ASSET_EXTS[i]); key[159] = 0;
+        if (RegGetValueW(HKEY_CURRENT_USER, key, NULL, RRF_RT_REG_SZ, NULL, cur, &sz) != ERROR_SUCCESS) continue;
+        if (wcscmp(cur, L"VPPForge.Asset") != 0) continue; /* someone else owns it now */
+        if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\VPPForge\\PrevAssoc", ASSET_EXTS[i],
+                         RRF_RT_REG_SZ, NULL, prev, &psz) == ERROR_SUCCESS && prev[0])
+            reg_set_str(HKEY_CURRENT_USER, key, NULL, prev);   /* give it back */
+        else
+            RegDeleteTreeW(HKEY_CURRENT_USER, key);
+    }
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset");
+}
+
 static void write_uninstall_entry(const wchar_t *exe, const wchar_t *dir) {
     const wchar_t *k = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VPPForge";
     wchar_t buf[MAX_PATH * 2 + 16];
@@ -818,6 +866,7 @@ static int do_install(void) {
         }
     }
     write_associations(target);
+    write_asset_associations(target);
     write_uninstall_entry(target, dir);
     create_start_menu_shortcut(target);
     reg_set_dw(HKEY_CURRENT_USER, L"Software\\VPPForge", L"Installed", 1);
@@ -835,6 +884,7 @@ static void do_uninstall(void) {
         !wcscmp(val, L"VPPForge.Archive"))
         RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\.vpp");
     RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Archive");
+    remove_asset_associations();
     RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VPPForge");
     RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\VPPForge");
     if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, progs))) {
@@ -878,6 +928,7 @@ static void maybe_offer_setup(void) {
     if (MessageBoxW(NULL,
         L"Set up VPP Forge on this PC?\n\n"
         L"\x2022 Double-clicking .vpp files will open them here\n"
+        L"\x2022 Models, effects and animations open in the viewer too\n"
         L"\x2022 Adds a Start Menu entry\n"
         L"\x2022 Listed in Windows Apps for easy uninstall\n\n"
         L"Choose No to run without installing (it won't ask again).",
