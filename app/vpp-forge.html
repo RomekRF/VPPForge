@@ -4147,7 +4147,7 @@ function contextItems(){
     ...((()=>{const t=[...state.sel].map(byId).filter(x=>x&&x.tkey==="tga");
       return t.length?[{label:t.length===1?"Replace with DDS":"Replace "+t.length+" TGA with DDS",fn:()=>tgaEntriesToDds(t)}]:[];})()),
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
-    {label:one?"Duplicate":"Duplicate "+n+" files",fn:duplicateSelected},
+    {label:one?"Duplicate":"Duplicate "+n+" files",k:"Ctrl D",fn:duplicateSelected},
     {label:one?"Copy name":"Copy "+n+" names",fn:copySelectedNames},
     "-",
     ...(one?[
@@ -4177,11 +4177,13 @@ function applyViewOrder(){
 function showShortcuts(){
   openPop(
     '<h3>Keyboard shortcuts</h3><table>'+
-    [["Open VPP","Ctrl O"],["Save VPP","Ctrl S"],["Undo / Redo","Ctrl Z / Y"],["Duplicate","Ctrl D"],
-     ["Filter files","Ctrl F"],["Select all","Ctrl A"],
-     ["Move through list","↑ / ↓"],["Extend selection","Shift ↑ / ↓"],["First / last","Home / End"],
-     ["Play / pause animation or audio","Space"],
-     ["Full size preview","Enter"],["Rename","F2"],["Remove selected","Del"],["Reorder file","Alt ↑ / ↓"],
+    [["Open VPP","Ctrl O"],["Save VPP","Ctrl S"],["Save as…","Ctrl Shift S"],
+     ["Undo","Ctrl Z"],["Redo","Ctrl Y"],
+     ["Move through list","↑ / ↓"],["Extend selection","Shift ↑ / ↓"],
+     ["First / last file","Home / End"],["Select all","Ctrl A"],["Filter files","Ctrl F"],
+     ["Extract selected","Ctrl E"],["Duplicate","Ctrl D"],["Rename","F2"],
+     ["Remove selected","Del"],["Reorder file","Alt ↑ / ↓"],
+     ["Play / pause animation or audio","Space"],["Full size preview","Enter"],
      ["Close / clear","Esc"],["This panel","?"]]
       .map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+
     "</table>",
@@ -4247,7 +4249,12 @@ function showUpdate(info,manual){
   }
   const card=b=>'<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);max-width:430px;width:calc(100% - 48px);padding:24px 26px">'+b+"</div>";
   const draw=()=>{
-    if(!info.ok){
+    if(info.browser){
+      ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:6px">Browser version</h2>'
+        +'<p style="color:var(--text-2);font-size:12px;margin-bottom:10px">You are running VPP Forge as a web page, which cannot replace its own file. Download the newest <b>VPPForge-Browser.html</b> from the releases page to update it.</p>'
+        +'<p style="color:var(--text-3);font-size:11.5px;margin-bottom:18px">The desktop app updates itself.</p>'
+        +'<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn outline" id="upClose">Close</button><button class="btn primary" id="upGh">Open releases</button></div>');
+    }else if(!info.ok){
       ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:6px">Could not check for updates</h2>'
         +'<p style="color:var(--text-2);font-size:12px;margin-bottom:18px">No connection to GitHub, or the release could not be read. You can always download the latest build from the releases page.</p>'
         +'<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn outline" id="upGh">Open releases</button><button class="btn outline" id="upClose">Close</button></div>');
@@ -4298,7 +4305,8 @@ function showUpdate(info,manual){
 }
 function checkForUpdates(manual){
   if(!BRIDGE){
-    if(manual)window.open(REPO_URL+"/releases/latest","_blank");
+    /* a page cannot rewrite itself; point at the download and say why */
+    if(manual)showUpdate({browser:true},true);
     return;
   }
   if(manual)toast("Checking for updates…");
@@ -4350,7 +4358,7 @@ function menuItems(which){
       {label:"New VPP",fn:newArchive},
       {label:"Open VPP…",k:"Ctrl O",fn:openArchiveDialog},
       {label:"Save VPP",k:"Ctrl S",off:$("btnSave").disabled,fn:()=>saveArchive()},
-      ...(BRIDGE?[{label:"Save as…",off:!has,fn:()=>saveArchive(true)}]:[]),
+      ...(BRIDGE?[{label:"Save as…",k:"Ctrl Shift S",off:!has,fn:()=>saveArchive(true)}]:[]),
       ...(BRIDGE&&state.saveId!=null?[{label:"Show in Explorer",fn:()=>bridgeJson("/reveal?id="+state.saveId).catch(()=>{})}]:[]),
     ];
     if(!BRIDGE)return Promise.resolve(base);
@@ -4375,7 +4383,7 @@ function menuItems(which){
       {label:"Open full size",icon:IC.expand,k:"Enter",off:!canBig,fn:()=>openLightbox(e)},
       "-",
       {label:"Add files…",fn:()=>$("fileAdd").click()},
-      {label:state.sel.size>1?"Extract "+state.sel.size+" files…":"Extract selected…",icon:IC.extract,off:!state.sel.size,fn:()=>extractIds(state.sel)},
+      {label:state.sel.size>1?"Extract "+state.sel.size+" files…":"Extract selected…",icon:IC.extract,k:"Ctrl E",off:!state.sel.size,fn:()=>extractIds(state.sel)},
       {label:BRIDGE?"Extract all…":"Extract all as ZIP",icon:IC.zip,off:!has,fn:()=>extractIds(new Set(state.entries.map(x=>x.id)))},
       "-",
       {label:"Rename",icon:IC.rename,k:"F2",off:!one,fn:()=>beginRename([...state.sel][0])},
@@ -4667,7 +4675,9 @@ document.addEventListener("keydown",ev=>{
   }
   if(lbOpen)return;
   if(mod&&k==="o"){ev.preventDefault();openArchiveDialog();}
+  else if(mod&&k==="s"&&ev.shiftKey){ev.preventDefault();if(!$("btnSaveAs").disabled)saveArchive(true);}
   else if(mod&&k==="s"){ev.preventDefault();if(!$("btnSave").disabled)saveArchive();}
+  else if(mod&&k==="e"){ev.preventDefault();if(state.sel.size)extractIds(state.sel);}
   else if(mod&&k==="f"){ev.preventDefault();$("search").focus();$("search").select();}
   else if(mod&&k==="a"){ev.preventDefault();selectAll();}
   else if(mod&&k==="z"&&!ev.shiftKey){ev.preventDefault();undo();}

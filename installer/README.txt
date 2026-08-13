@@ -34,8 +34,11 @@ USING IT
     for a destination folder and unpacks the selected files there.
   - Select a file to preview it: textures, meshes, animations,
     levels, fonts, tables and audio.
-  - F2 renames, Del removes, Alt Up/Down reorders, Ctrl S saves,
-    Ctrl F filters.
+  - Arrow keys move through the list, Space plays and pauses an
+    animation or a sound, F2 renames, Del removes, Alt Up/Down
+    reorders, Ctrl S saves, Ctrl E extracts, Ctrl F filters.
+    The full list is under Help > Keyboard shortcuts.
+  - New versions install themselves: Help > Check for updates.
   - Light/dark theme and the panel-swap button sit at the top right;
     theme, layout and panel sizes are remembered between sessions.
 
