@@ -90,6 +90,10 @@ svg.i{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;fill:none;stro
   color:var(--text-2); font:400 12px var(--sans); cursor:default; user-select:none;
 }
 #menubar button:hover,#menubar button.open{background:var(--raised); color:var(--text)}
+#menubar button.has-update::after{
+  content:""; width:5px; height:5px; border-radius:50%; background:var(--accent);
+  display:inline-block; vertical-align:top; margin-left:3px;
+}
 .brand{display:flex; align-items:center; gap:9px; user-select:none}
 .brand .mark,.es-mark{width:20px;height:20px;border-radius:5px;background:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAANeklEQVR42uWb288dR5XFf6vO8SVf4mAngBPi3CAeIEgQxokEGoHEBKFISIOC4AFERGAEfxIIJCBcRJ6YGWCkmUEINIqAkUIMCMUQyQwQ2yQhdi624+t3avHQ1d3V1dV9jmMRHjiS9fn0qe6q2rX32nuvvVuA+Tv+LAEE7JLQazz5Kv1dvIZztqd90catAHZJPCxxjc1llIY1f3OhqHiQulHNSKdf1F3Nx2tw77WYo4gouMvmPO0BDO9Tto7aqvpZ+zUKiIMVO63P7AAuSDwCXLB7Ddiy2ZMuCJDSNG5ubx+mfIECuZ/cGAlwc0VKow1uB6pZXLDZEkTD62yuFyycCVpOonS7iExE/YyNRDT8TnMt0q7D2M2wbZtFJpplu5dtYCHxrxJ7bFa5yCf1AKT8zETIv6v/awOhUfeXEd9Kc2wjFpiHBXvSOkJ6sN1rgULalzNVllBao4u1KVtmRCwEZwVfSXOMBECaeA/mOrufXHUbGouiMqCAVztXz0xlLa4Frst1zTPPrVzz1Hry31zgnDIQbA98u/urJJTNnYQm1tnjRKPmUY1g88XE9PtqqDiZ3VNY9fx8pQBC+2wPH7KkAA+lUwpyZ0vdhMrgx3VUHCwwG6PiX7ngfP7O9tVrQ6mJI6N0feetBas1rWLQkux0StttwWgk4QQoA2GqWNjEgnKYdtqVle5Pv5daZ41Pfu3m6bGhB+J+sDOz74CiZvPU1E/1hagAx5Hp5rvIFDjU5Vz9hHJNZjZ+KQ+1PKjQP9iTNjVl7+VguXKtc6XJzp175uEi2zFxBmxH2KhsU1PzlzfUIsHcBlt1UUUFlNm3K6LOBdMB32ByJ9Xv714ZHIRsdiSfGUlgmT0zd/mqoWKxxlbwKDefoe4u8/UP/lndLKpNVIhXpd05bVxN5PV7i6cFzwAv2Fx2o35LwQrzVcM+xM2IO4O41WYr7WJVxhuuz+81wqiZ93KwpzSoPaA8DnIxiSc0KwLLNPhZiceBI4bTjt24FWKnxEU1ofBFiTPAKcNRzGOY6xFvF9yHuDnNtg2ECcCzqnIZm4OGWrDMY3W3iOLGDWqNby1t02nzL0r8UPArN+odBC+EwB8wx4GTwHk3sTjAD4Et4PWCWwS3J4n/zOZxiXdK3A/cEM226q50FH9pyiMMzW+Z39aqbokBrvj5mjAWiJ9L/CfmXDQ7JJ4K4gnMcZtoV2++CLwMPCP4dYQgcStwKIh/MByOcETw4RC41zEBpUbusnSJzr1Ejh1STQB1qTqFj3kS5M45u4uyTOA7wGOO7JM4FgI/tnkuxkkXNnKl6Ydo80fgj4b9EvcHcTCaRx05FgL/YhPcmFKQG7xq9Vh5zqAugOv35yxzLQRQk6ayhw5tySmrg0sKfBN40pEtie9LPJE2HjLziFeQOrRq/pzNt20OhcADhsdi5AUFHpIJ9iCskcZrdKHB5SkHKnZsbZaHCIgSX0+b3xHEN4EnYmyCGzWuzFPRUjWC6u010obl8IQjjwBBgSOOfF1CaoIAk2eEQ5sv91Zqe6CilraSG2Q2zFoA/4Y44sgyiEcMx1O+3aHylL+e8OGjLC/xBwvDCZtvNAjNb2Lk3xFLjQ+seuDZelTTgLmwvQxTY9r8zwn8xJFrJB4Fnk+bX2VgOnkEtWszY1Zpsc/bPGrYkvipzWGJHUC0BussI1VlbJJrAigPQRPBeZvSvoT4bvLX/w2ciP3m/1qfmBb8jM1/SVwPfM/mJQILPNaESiRZHnaomaImAmp3aTH8AHHB5mgQv7QJyd5nM6S5a+uSeg2FcNiRo0GcN/wo4cQazqRzNTH7JYyyrQpZ4SKuf07iMGYh8SM7E1sZjqkeL3sDAXm9MP4HsxT8AvOcAos5T5PUIBYPC1U1d5+1jbUDfmZY2RxB/Lk9/fKm8kEqbFwVu58CygIbohv3ezKa3wKXbR6fUqScJ0UEe8BSj93gTEC9AC4gnkwE6i/ztG+d7q0DwLlrM5/HaSLHJ6O5hDpmOSducjK1Z7dn3GBt/61PfhpxxnAKOFFw8q/lp13PCeAk4mXgWCLOW94hB0Wpqky5BvTcnzXUho7MQByl4fiPqQek1sa0DgRFlm5eeXBUflcyvWOYKPM79XGD1UN57DbuUTY70oAFECyC1fw//WsLJs+mFRxnnH9WQXBk3wUuvIrgqDSPE2pqB8+m4snCsMBpL43bbkhRjYjZZalWpxMZEJNttWtuixUvuSEoTtnDTLFG1I8KA2vsW1eGJ+3l51OgdAo43bCqo7pGELwCrGJy16UAtmgyrG/YnabmwNBu95Jhl+Dcq61Kzu3Z9WvruMpzwC7grCNfQARXxrvHja2SEYrA7yV2tWWjMm4O/fqWwCXBpVpuP+fGJr5bZEHquNCgogwihAvXehF4SmKX+sKKJ4qyC+ASjRsfUGLbSU1WibRUUaNSKlZsp3qe121+0+guMxWXTKucuS8nSHGViG1LXznyly5dyZRVmkAA7kzV4YWEoqvZeqSpuJ4X7KSR/Ma2WxWQKrhxBZiRPjtpSuw73fwfj4ncVhjbwNkM/Tta/AJwrcTnJa5rQbArTqtjTL/shr66DnHmagOhjYBh/WcrHcaNgs9lIN6edEy85GmJr9icyyZY5gHBAthjsyfV89XS45iY3Mo+xElHbkwUt642EFob9ytH4QE6txZzo8TCZi9NaT+mI2trHA1/SCLuJhghJcDZTra4SqntCrOtxvYN3Jymf9MmWd0mY/KNlfU0UWw+y1SzaweSnt6U4VlbYVoBUU2gtJpLh2OSjsq1Z5VV2RxMHOHtyUQ6VdMGoDgnjDZA8jxh0hItylLjW930GNyVctLBPjSsepf2GKjU4nMupI0EQ/KjdwB7EfsMB/LEYh2744lrV2E5ALcgbgT2CG6jZ6nniruThIhnghglddqFuRsRbd6tq98Im5rShATuQaxs3gHsxnVGykNtYEoAi1pLUPredHU0P7yXppnqrTZvDOpU8VX32XmCDCkTp3QtSETDGyXuTsTMe1UQuwWOSvPl9j7j0/RBhSTh/cC7Q2Blc39GvIkrzOrWJj2eAMHmwj+rOf1/ROxPOUqtC6XNbKNnBKCSEJnDK8yHbHYj3uzIfQodSzPJ5KypLm/KGoe0kXsk7opmt8SHcNeApakGrTzdr2uAquCkCj+6AvbaPCg4Y/igze0hdNT1xgzQFdpMyzrfEsQDwGnMRxB7aVruJrvErMkoPaxDWYus9pZuSunnIeD9IXDW5mM2NyU82Lj11d6IDJH6zb9B4hPAeZt/UuBe4lDwRbncayrJgSGnO+IxyGps5J1fgm3Mgzb3KHDJ5lPAHUkTNBcfaPN8oXXLK+CAxMOC7WjuVuCjU6hfaJ3kQYfbvAZojUaMCB7zEOZdIXApmk/YvCeE7gSCh+Wp2YzRwwwvpMAnAodC4CHgcjTvUODTqd3WmyaermPwcl3jE3n/XvGEkPp4FpjPGP5Dgccc+QDmzQr8r+FExtQH1yvC5cnETBb7JT4g8TabF23ep8CDgIhEJU4ylepzAHRWGve6dvlxS2lRz6h0g7VEaOgaEcxHBbcp8F2b/Y58UuKoxC8ET5txg4TrjHSQOCA4hHi7zeUYscSnFLg3JWZxUPgcd5whj/oRaue7HNUEKnriNd/VeQdzL+agxA8Qh23eAhxEnAKOS/wJOCl4xU0KLmA3cI3g9cAB4A7EDamjRIL7gvigYZ/jZItM2QdUu6au76uSDned36pzmVrHfagnHF6H+Tjw/iD+D/iNG6zYB7xTsHJT0X0qVXbf6oZrXOC0QHO9xN0B7gNuSknStupua65/yalyvEhqKw8Lv8tNuEttmL8oixMA9tt8BHgA8XQQ/++mkHEKOOdExAI7bfZJ3IC4WeI24E6Z3WnjbZvcIjcbjU1SeVtt2btcYNiIFleGvCNKqfZuwkxfuvIGSGCnzEHDwTTTi4gvZi5sp+CzEnvbfiI10L8ia3KeYs4qHqUsO0geeAFNYYDWbMybNEIXAmsZ5uiWlW2KqYMYPJJeaIGV+nhk1G/suo2PehcnMMDqKQfXNMCbpqNXUM/PXaYrjUw5+a1CMCM5qx5Ne8OgWl3Sp3p/wFWltOui3olWgVHjjivBl+d5lpzEmWPl2+cEPBMHmM1FuonUS9DyMD9XmTmuMa0yTtHgXYBh8jNcwLBlRlMmUDJX8rTvb8cF19tp5BlWLEdlD3sJB7xIhSf1GnPL3Vx0/+pPjgFVECRjhcIUO7ROz9bl/MmdueAgQpb16SrKjmPKq+8SXVZoipEJnE27XinvyXdX+g4ZvOfNJm2NL8+8XaSWTq/NnUkG6VTIBDgjdS82jVrbM04v+grrJ0mdFoYz9O8SjjRgB3DZ8KX2njgkBTp8oGi1UKUls/Rf7t8dzN6r7PoPVsDX7N7fq59fKeMcUggaCt61N1RTsVUZ426zwizLZunm5MU2Ti8VqiiMZnlC9hpat3eNe3I67l5DGQkRZbYQ59P3lwWvtNqjSp+i2nbtRjVUvrarWrSq4f8TkbEDOK++wtwJcZdU2JCH/aVlpmEPmwjyoyiZ3QmbjRkm8Bq/QH0x4xLKHvMsQlG20Zl4cSCMde9vungF5W/79v5fAP8MyxIXBYx3AAAAAElFTkSuQmCC) center/cover no-repeat;flex:none}
 .brand .name{font:600 12px var(--mono); letter-spacing:.14em; color:var(--text)}
@@ -4218,6 +4222,11 @@ function showWelcome(justInstalled){
     +'<ul '+ul+'>'
     +'<li>Windows Settings › Apps › Installed apps › <b>VPP Forge</b> › Uninstall.</li>'
     +'</ul>'
+    +'<h3 '+h3+'>Updates</h3>'
+    +'<ul '+ul+'>'
+    +'<li>VPP Forge checks for new versions on its own and tells you when one is out.</li>'
+    +'<li>Help › Check for updates installs the new version and restarts, no reinstall needed.</li>'
+    +'</ul>'
     +'<div style="display:flex;align-items:center;gap:12px;margin-top:18px">'
     +'<span style="color:var(--text-3);font-size:11.5px;flex:1">Reopen this page any time from Help › Getting started.</span>'
     +'<button class="btn outline" id="welcomeClose">Get started</button>'
@@ -4225,6 +4234,85 @@ function showWelcome(justInstalled){
     +'</div>';
   $("welcomeClose").addEventListener("click",()=>ov.remove());
   ov.style.display="flex";
+}
+let updateInfo=null; /* {available,current,latest} once checked this session */
+function showUpdate(info,manual){
+  let ov=$("updater");
+  if(!ov){
+    ov=document.createElement("div");
+    ov.id="updater";
+    ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
+    ov.addEventListener("mousedown",ev=>{if(ev.target===ov&&!ov.dataset.busy)ov.remove();});
+    document.body.appendChild(ov);
+  }
+  const card=b=>'<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);max-width:430px;width:calc(100% - 48px);padding:24px 26px">'+b+"</div>";
+  const draw=()=>{
+    if(!info.ok){
+      ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:6px">Could not check for updates</h2>'
+        +'<p style="color:var(--text-2);font-size:12px;margin-bottom:18px">No connection to GitHub, or the release could not be read. You can always download the latest build from the releases page.</p>'
+        +'<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn outline" id="upGh">Open releases</button><button class="btn outline" id="upClose">Close</button></div>');
+    }else if(!info.available){
+      ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:6px">VPP Forge is up to date</h2>'
+        +'<p style="color:var(--text-2);font-size:12px;margin-bottom:18px">You are running version '+esc(info.current)+', the newest release.</p>'
+        +'<div style="text-align:right"><button class="btn outline" id="upClose">Close</button></div>');
+    }else{
+      ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:6px">Version '+esc(info.latest)+' is available</h2>'
+        +'<p style="color:var(--text-2);font-size:12px;margin-bottom:10px">You are running '+esc(info.current)+'. VPP Forge can install the update itself and restart.</p>'
+        +'<p style="color:var(--warn);font-size:12px;margin-bottom:18px">Save any unsaved work first. The app will close and reopen, and anything unsaved will be lost.</p>'
+        +'<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn outline" id="upGh">What\'s new</button><button class="btn outline" id="upLater">Later</button><button class="btn primary" id="upGo">Install and restart</button></div>');
+    }
+    const gh=$("upGh"),cl=$("upClose"),lt=$("upLater"),go=$("upGo");
+    if(gh)gh.addEventListener("click",()=>window.open(REPO_URL+"/releases/latest","_blank"));
+    if(cl)cl.addEventListener("click",()=>ov.remove());
+    if(lt)lt.addEventListener("click",()=>ov.remove());
+    if(go)go.addEventListener("click",()=>{
+      if(state.dirty&&!confirm("This VPP has unsaved changes that will be lost.\n\nInstall the update anyway?"))return;
+      ov.dataset.busy="1";
+      ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:10px">Installing update…</h2>'
+        +'<div style="height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden;margin-bottom:8px"><div style="height:100%;width:45%;background:var(--accent)"></div></div>'
+        +'<p style="color:var(--text-2);font-size:11.5px">Downloading the new version. VPP Forge will close and reopen on its own.</p>');
+      fetch(bridgeUrl("/update/apply"),{method:"POST"})
+        .then(r=>r.json())
+        .then(j=>{
+          if(j&&j.ok){
+            ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:10px">Restarting…</h2>'
+              +'<p style="color:var(--text-2);font-size:12px">VPP Forge is reopening with the new version.</p>');
+          }else{
+            delete ov.dataset.busy;
+            ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:6px">Update failed</h2>'
+              +'<p style="color:var(--text-2);font-size:12px;margin-bottom:18px">The new version could not be downloaded. Nothing was changed. Try again, or download it from the releases page.</p>'
+              +'<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn outline" id="upGh">Open releases</button><button class="btn outline" id="upClose">Close</button></div>');
+            $("upGh").addEventListener("click",()=>window.open(REPO_URL+"/releases/latest","_blank"));
+            $("upClose").addEventListener("click",()=>ov.remove());
+          }
+        })
+        .catch(()=>{
+          /* the bridge dies as the app restarts, which is the success path */
+          ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:10px">Restarting…</h2>'
+            +'<p style="color:var(--text-2);font-size:12px">VPP Forge is reopening with the new version.</p>');
+        });
+    });
+  };
+  draw();
+  ov.style.display="flex";
+}
+function checkForUpdates(manual){
+  if(!BRIDGE){
+    if(manual)window.open(REPO_URL+"/releases/latest","_blank");
+    return;
+  }
+  if(manual)toast("Checking for updates…");
+  bridgeJson("/update/check").then(j=>{
+    updateInfo=j;
+    if(manual)showUpdate(j,true);
+    else if(j&&j.ok&&j.available){
+      toast("Version "+j.latest+" is available · Help › Check for updates");
+      const hb=menuBtn("help");
+      if(hb)hb.classList.add("has-update");
+    }
+  }).catch(()=>{
+    if(manual)showUpdate({ok:0},true);
+  });
 }
 function showAbout(){
   let ov=$("about");
@@ -4325,6 +4413,9 @@ function menuItems(which){
     {label:"Getting started",fn:()=>showWelcome(false)},
     {label:"Keyboard shortcuts",k:"?",fn:showShortcuts},
     "-",
+    {label:(updateInfo&&updateInfo.ok&&updateInfo.available)
+      ?"Update to "+updateInfo.latest+"…":"Check for updates…",
+      fn:()=>checkForUpdates(true)},
     {label:"About VPP Forge",fn:showAbout},
     {label:"VPP Forge on GitHub",fn:()=>window.open(REPO_URL,"_blank")},
   ]);
@@ -4836,6 +4927,8 @@ if(BRIDGE){
     else renderEmptyRecents();
   }).catch(()=>{});
   if(BRIDGE.installed)showWelcome(true);
+  /* quiet check a few seconds in, so it never delays opening a file */
+  setTimeout(()=>checkForUpdates(false),4000);
 }
 </script>
 </body>

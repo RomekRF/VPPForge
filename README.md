@@ -74,7 +74,7 @@ With MSYS2 or any MinGW-w64 toolchain on PATH:
 
     python3 tools/embed.py app/vpp-forge.html src/app_html.h
     x86_64-w64-mingw32-windres resources/vppforge.rc -O coff -o res.o
-    x86_64-w64-mingw32-gcc -O2 -municode -mwindows src/vppforge.c res.o -o vppforge.exe -lws2_32 -lcomdlg32 -ladvapi32 -lshell32 -luser32 -lole32 -luuid -static -s
+    x86_64-w64-mingw32-gcc -O2 -municode -mwindows src/vppforge.c res.o -o vppforge.exe -lws2_32 -lcomdlg32 -ladvapi32 -lshell32 -luser32 -lole32 -luuid -lwininet -static -s
 
 ## Layout
 

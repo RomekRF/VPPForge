@@ -31,6 +31,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <objbase.h>
+#include <wininet.h>
 typedef SOCKET sock_t;
 #define CLOSESOCK closesocket
 #else
@@ -331,6 +332,205 @@ static int plat_dialog_folder(char *out_utf8, size_t cap) {
     }
     if (SUCCEEDED(co)) CoUninitialize();
     return ok;
+}
+
+/* --------------------------- self-update over HTTPS --------------------- */
+/* Checks the project's GitHub releases for a newer version, downloads the
+   published exe, swaps it in and relaunches. Windows lets a running exe be
+   renamed but not overwritten, so the old file is moved aside and deleted on
+   the next start. */
+
+#define UPDATE_API_URL  L"https://api.github.com/repos/RomekRF/VPPForge/releases/latest"
+#define UPDATE_ASSET    "vppforge.exe"
+
+static char g_update_ver[64] = "";   /* latest tag, once checked */
+static char g_update_url[1024] = ""; /* download url for the exe asset */
+static int  g_update_pending = 0;    /* set once a new exe is staged */
+static wchar_t g_update_staged[MAX_PATH * 2];
+
+/* GET a url into a malloc'd buffer (caller frees). Returns 0 on success. */
+static int http_get(const wchar_t *url, char **out, DWORD *out_len) {
+    HINTERNET hi, hu;
+    char *buf = NULL;
+    DWORD cap = 65536, len = 0, got = 0;
+    const wchar_t *hdrs = L"User-Agent: VPPForge\r\nAccept: application/vnd.github+json\r\n";
+    *out = NULL; if (out_len) *out_len = 0;
+    hi = InternetOpenW(L"VPPForge", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    if (!hi) return -1;
+    hu = InternetOpenUrlW(hi, url, hdrs, (DWORD)-1,
+                          INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE |
+                          INTERNET_FLAG_SECURE | INTERNET_FLAG_KEEP_CONNECTION, 0);
+    if (!hu) { InternetCloseHandle(hi); return -1; }
+    buf = (char *)malloc(cap);
+    if (!buf) { InternetCloseHandle(hu); InternetCloseHandle(hi); return -1; }
+    while (InternetReadFile(hu, buf + len, cap - len - 1, &got) && got > 0) {
+        len += got;
+        if (len + 4096 >= cap) {
+            char *nb;
+            if (cap > 64u * 1024u * 1024u) break; /* sanity cap */
+            cap *= 2;
+            nb = (char *)realloc(buf, cap);
+            if (!nb) { free(buf); InternetCloseHandle(hu); InternetCloseHandle(hi); return -1; }
+            buf = nb;
+        }
+    }
+    buf[len] = 0;
+    InternetCloseHandle(hu); InternetCloseHandle(hi);
+    *out = buf; if (out_len) *out_len = len;
+    return len > 0 ? 0 : -1;
+}
+
+/* Download a url straight to a file. Returns 0 on success. */
+static int http_download(const wchar_t *url, const wchar_t *path) {
+    HINTERNET hi, hu;
+    HANDLE f;
+    char buf[65536];
+    DWORD got = 0, written = 0, total = 0;
+    hi = InternetOpenW(L"VPPForge", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    if (!hi) return -1;
+    hu = InternetOpenUrlW(hi, url, L"User-Agent: VPPForge\r\n", (DWORD)-1,
+                          INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE |
+                          INTERNET_FLAG_SECURE, 0);
+    if (!hu) { InternetCloseHandle(hi); return -1; }
+    f = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) { InternetCloseHandle(hu); InternetCloseHandle(hi); return -1; }
+    while (InternetReadFile(hu, buf, sizeof buf, &got) && got > 0) {
+        if (!WriteFile(f, buf, got, &written, NULL) || written != got) {
+            CloseHandle(f); DeleteFileW(path);
+            InternetCloseHandle(hu); InternetCloseHandle(hi);
+            return -1;
+        }
+        total += got;
+    }
+    CloseHandle(f);
+    InternetCloseHandle(hu); InternetCloseHandle(hi);
+    if (total < 50000) { DeleteFileW(path); return -1; } /* far too small to be the app */
+    return 0;
+}
+
+/* "1.19.0" -> 1019000-ish ordering value */
+static long ver_value(const char *v) {
+    int a = 0, b = 0, c = 0;
+    while (*v && (*v < '0' || *v > '9')) v++;      /* skip a leading 'v' */
+    sscanf(v, "%d.%d.%d", &a, &b, &c);
+    return (long)a * 1000000L + (long)b * 1000L + (long)c;
+}
+
+/* pull "key":"value" out of a flat json blob */
+static int json_str(const char *json, const char *key, char *out, size_t cap) {
+    char pat[64];
+    const char *p, *q;
+    size_t n;
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    p = strstr(json, pat);
+    if (!p) return 0;
+    p = strchr(p + strlen(pat), '"');
+    if (!p) return 0;
+    p++;
+    q = p;
+    while (*q && *q != '"') { if (*q == '\\' && q[1]) q++; q++; }
+    n = (size_t)(q - p);
+    if (n >= cap) n = cap - 1;
+    memcpy(out, p, n);
+    out[n] = 0;
+    return 1;
+}
+
+/* Ask GitHub for the newest release. Fills g_update_ver / g_update_url.
+   Returns 1 if a newer version exists, 0 if current, -1 on error. */
+static int update_check(void) {
+    char *json = NULL;
+    DWORD len = 0;
+    char tag[64] = "";
+    const char *p;
+    int newer = 0;
+    if (http_get(UPDATE_API_URL, &json, &len) != 0 || !json) return -1;
+    if (!json_str(json, "tag_name", tag, sizeof tag)) { free(json); return -1; }
+    snprintf(g_update_ver, sizeof g_update_ver, "%s", tag);
+    /* find the download url whose asset name is our exe */
+    g_update_url[0] = 0;
+    p = json;
+    while ((p = strstr(p, "browser_download_url")) != NULL) {
+        char url[1024] = "";
+        const char *s = strchr(p, ':');
+        if (!s) break;
+        s = strchr(s, '"');
+        if (!s) break;
+        s++;
+        {   const char *e = strchr(s, '"');
+            size_t n;
+            if (!e) break;
+            n = (size_t)(e - s);
+            if (n < sizeof url) { memcpy(url, s, n); url[n] = 0; }
+            p = e;
+        }
+        {   size_t ul = strlen(url), al = strlen(UPDATE_ASSET);
+            if (ul > al && !strcmp(url + ul - al, UPDATE_ASSET)) {
+                snprintf(g_update_url, sizeof g_update_url, "%s", url);
+                break;
+            }
+        }
+    }
+    newer = ver_value(tag) > ver_value(VPP_VERSION);
+    free(json);
+    if (newer && !g_update_url[0]) return -1; /* newer, but nothing we can install */
+    return newer ? 1 : 0;
+}
+
+/* Download the new exe next to the current one and stage it. */
+static int update_stage(void) {
+    wchar_t self[MAX_PATH * 2], dir[MAX_PATH * 2], *slash;
+    wchar_t *wurl;
+    if (!g_update_url[0]) return -1;
+    GetModuleFileNameW(NULL, self, MAX_PATH * 2);
+    wcscpy(dir, self);
+    slash = wcsrchr(dir, L'\\');
+    if (slash) *slash = 0; else return -1;
+    _snwprintf(g_update_staged, MAX_PATH * 2 - 1, L"%s\\vppforge.new.exe", dir);
+    g_update_staged[MAX_PATH * 2 - 1] = 0;
+    wurl = utf8_to_wide(g_update_url);
+    if (!wurl) return -1;
+    if (http_download(wurl, g_update_staged) != 0) { free(wurl); return -1; }
+    free(wurl);
+    {   /* must look like a Windows executable */
+        FILE *f = _wfopen(g_update_staged, L"rb");
+        char mz[2] = {0, 0};
+        if (!f) return -1;
+        fread(mz, 1, 2, f);
+        fclose(f);
+        if (mz[0] != 'M' || mz[1] != 'Z') { DeleteFileW(g_update_staged); return -1; }
+    }
+    g_update_pending = 1;
+    return 0;
+}
+
+/* Swap the staged exe in and relaunch. Does not return. */
+static void update_apply_and_restart(void) {
+    wchar_t self[MAX_PATH * 2], old[MAX_PATH * 2];
+    GetModuleFileNameW(NULL, self, MAX_PATH * 2);
+    _snwprintf(old, MAX_PATH * 2 - 1, L"%s.old", self); old[MAX_PATH * 2 - 1] = 0;
+    DeleteFileW(old);
+    if (g_browser_proc) TerminateProcess(g_browser_proc, 0);
+    /* a running exe can be renamed, just not replaced in place */
+    if (MoveFileExW(self, old, MOVEFILE_REPLACE_EXISTING) &&
+        MoveFileExW(g_update_staged, self, MOVEFILE_REPLACE_EXISTING)) {
+        STARTUPINFOW si; PROCESS_INFORMATION pi;
+        memset(&si, 0, sizeof si); si.cb = sizeof si;
+        if (CreateProcessW(self, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+            CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+        }
+    } else {
+        MoveFileExW(old, self, MOVEFILE_REPLACE_EXISTING); /* put it back */
+    }
+    ExitProcess(0);
+}
+
+/* Remove the previous exe left behind by an update. */
+static void update_cleanup(void) {
+    wchar_t self[MAX_PATH * 2], old[MAX_PATH * 2];
+    GetModuleFileNameW(NULL, self, MAX_PATH * 2);
+    _snwprintf(old, MAX_PATH * 2 - 1, L"%s.old", self); old[MAX_PATH * 2 - 1] = 0;
+    DeleteFileW(old);
 }
 
 /* ------------------------- self-install (single exe, no bat files) ------ */
@@ -944,6 +1144,29 @@ static void handle_conn(sock_t s) {
         resp_json(s, "{\"ok\":1}");
         return;
     }
+    if (!strcmp(method, "GET") && !strncmp(target, "/update/check", 13)) {
+#ifdef _WIN32
+        int r = update_check();
+        char esc[128], out[1400];
+        json_escape(esc, sizeof esc, g_update_ver);
+        snprintf(out, sizeof out,
+            "{\"ok\":%d,\"current\":\"%s\",\"latest\":\"%s\",\"available\":%d}",
+            r >= 0 ? 1 : 0, VPP_VERSION, esc, r == 1 ? 1 : 0);
+        resp_json(s, out);
+#else
+        resp_json(s, "{\"ok\":0}");
+#endif
+        return;
+    }
+    if (!strcmp(method, "POST") && !strncmp(target, "/update/apply", 13)) {
+#ifdef _WIN32
+        if (update_stage() == 0) resp_json(s, "{\"ok\":1}");
+        else { resp_json(s, "{\"ok\":0}"); return; }
+#else
+        resp_json(s, "{\"ok\":0}");
+#endif
+        return;
+    }
     if (!strcmp(method, "GET") && !strncmp(target, "/dialog/folder", 14)) {
         char dir[4096];
         if (!plat_dialog_folder(dir, sizeof dir)) { resp_json(s, "{\"cancel\":1}"); return; }
@@ -1060,6 +1283,10 @@ static void serve_loop(sock_t ls) {
         if (c == INVALID_SOCKET) continue;
         handle_conn(c);
         CLOSESOCK(c);
+#ifdef _WIN32
+        /* the reply is out; now swap in the new build and come back up */
+        if (g_update_pending) update_apply_and_restart();
+#endif
         if (g_quit) {
 #ifdef _WIN32
             if (g_browser_proc) TerminateProcess(g_browser_proc, 0);
@@ -1122,6 +1349,7 @@ int APIENTRY wWinMain(HINSTANCE hi, HINSTANCE hp, LPWSTR cl, int ns) {
         }
     }
     if (g_npaths > 0) add_recent(g_paths[0]);
+    update_cleanup();
     maybe_offer_setup();
     build_page();
     ls = make_listener(&port);

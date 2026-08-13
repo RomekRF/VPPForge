@@ -17,7 +17,7 @@ jobs:
         run: >
           x86_64-w64-mingw32-gcc -O2 -municode -mwindows
           src/vppforge.c vppforge_res.o -o vppforge.exe
-          -lws2_32 -lcomdlg32 -ladvapi32 -lshell32 -luser32 -lole32 -luuid -static -s
+          -lws2_32 -lcomdlg32 -ladvapi32 -lshell32 -luser32 -lole32 -luuid -lwininet -static -s
       - name: Package
         run: |
           mkdir -p dist/VPPForge
@@ -40,3 +40,4 @@ jobs:
           files: |
             dist/VPPForge-Desktop-Win64.zip
             dist/VPPForge-Browser.html
+            vppforge.exe
