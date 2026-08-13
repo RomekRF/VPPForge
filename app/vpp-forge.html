@@ -2794,6 +2794,7 @@ function linkVpp(srcId,name,quiet){
     for(const f of list){
       const e={name:f.name,size:f.size,offset:f.off,data:null,refId:srcId,id:nextId++};
       e.tkey=typeKeyOf(e.name);
+      if(f.bones!=null)e.bones=f.bones; /* animations carry their rig size */
       ref.entries.push(e);
     }
     state.refs.push(ref);
@@ -3540,7 +3541,7 @@ function renderContent(body,e,big,acts){
           const h=parseRfaHeader(d);
           if(h&&h.bones>0)host=state.entries.find(x=>{
             if(x.tkey!=="v3c")return false;
-            try{const m=getDecoded(x,"v3m");return m.bones&&m.bones.length>=h.bones;}
+            try{const m=getDecoded(x,"v3m");return m.bones&&m.bones.length===h.bones;}
             catch(_){return false;}
           })||null;
         }catch(_){}
@@ -3852,17 +3853,31 @@ function render3d(body,e,big,r3opts){
   const model=getDecoded(e,isVfx?"vfx":"v3m");
   /* character rig: RFAs in this VPP whose bone count matches the skeleton */
   const isChar=!isVfx&&model.isSkeletal&&model.bones&&model.bones.length>0;
-  /* animations may drive fewer bones than the rig has (bones map by index).
-     Linked entries have no bytes yet, so they are listed and checked on pick. */
+  /* Only animations built for this rig. RFA stores no bone names, so the
+     bone count is the one signal available, and a matching skeleton has
+     exactly as many. Linked entries carry their count from the directory
+     read, so nothing has to be downloaded to filter them out. */
+  const rigBones=isChar?model.bones.length:0;
   const rfaList=isChar?[
     ...state.entries.filter(x=>{
       if(x.tkey!=="rfa"&&x.tkey!=="mvf")return false;
-      try{const h=parseRfaHeader(entryData(x));return h&&h.bones>0&&h.bones<=model.bones.length;}
+      try{const h=parseRfaHeader(entryData(x));return h&&h.bones===rigBones;}
       catch(_){return false;}
     }),
-    ...state.refs.flatMap(r=>r.entries.filter(x=>x.tkey==="rfa"||x.tkey==="mvf")
+    ...state.refs.flatMap(r=>r.entries
+      .filter(x=>(x.tkey==="rfa"||x.tkey==="mvf")&&x.bones===rigBones)
       .map(x=>Object.assign(x,{_refName:r.name})))
   ]:[];
+  /* RF characters share skeletons, so several hundred can legitimately fit.
+     Float the ones named after this character to the top. */
+  if(rfaList.length>1){
+    const tok=s=>stemOf(s).split(/[_\-. ]/)[0].toLowerCase();
+    const mine=tok(e.name);
+    rfaList.sort((a,b)=>{
+      const am=tok(a.name)===mine?0:1, bm=tok(b.name)===mine?0:1;
+      return am!==bm?am-bm:a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    });
+  }
   const st0=computeModelStats(model,0);
   const bar=document.createElement("div");bar.className="viewer-bar";
   const statLine=document.createElement("span");
@@ -3942,7 +3957,7 @@ function render3d(body,e,big,r3opts){
         if(!ent)return;
         ensureData(ent).then(()=>{
           const anim=getDecoded(ent,"rfa");
-          if(anim.numBones>model.bones.length)
+          if(anim.numBones!==model.bones.length)
             throw new Error("built for a "+anim.numBones+"-bone rig, this one has "+model.bones.length);
           dur=anim.duration;t0=anim.startT;
           timeLbl.textContent="0.00 / "+dur.toFixed(2)+"s";

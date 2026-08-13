@@ -376,15 +376,31 @@ static void handle_vpp_dir(sock_t s, int id) {
         unsigned char rec[64];
         char name[61], esc[130];
         unsigned long size;
-        int j;
+        int j, bones = -1;
         if (fread(rec, 1, 64, f) != 64) break;
         for (j = 0; j < 60 && rec[j]; j++) name[j] = (char)rec[j];
         name[j] = 0;
         size = (unsigned long)(rec[60] | (rec[61] << 8) | (rec[62] << 16) | ((unsigned long)rec[63] << 24));
+        /* For animations, pull the bone count out of the header now (4 bytes
+           at offset 24) so the viewer can offer only the ones that fit a rig
+           without fetching every file. */
+        {   size_t nl = strlen(name);
+            if (nl > 4 && (!strncasecmp_portable(name + nl - 4, ".rfa", 4) ||
+                           !strncasecmp_portable(name + nl - 4, ".mvf", 4)) && size >= 28) {
+                long back = ftell(f);
+                unsigned char h[28];
+                if (fseek(f, (long)data_off, SEEK_SET) == 0 && fread(h, 1, 28, f) == 28 &&
+                    h[0] == 'V' && h[1] == 'M' && h[2] == 'V' && h[3] == 'F')
+                    bones = (int)(h[24] | (h[25] << 8) | (h[26] << 16) | ((unsigned long)h[27] << 24));
+                fseek(f, back, SEEK_SET);
+            }
+        }
         json_escape(esc, sizeof esc, name);
-        if (len + 200 >= cap) break;
-        len += (size_t)snprintf(out + len, cap - len, "%s{\"name\":\"%s\",\"off\":%lu,\"size\":%lu}",
+        if (len + 220 >= cap) break;
+        len += (size_t)snprintf(out + len, cap - len, "%s{\"name\":\"%s\",\"off\":%lu,\"size\":%lu",
                                 i ? "," : "", esc, data_off, size);
+        if (bones >= 0) len += (size_t)snprintf(out + len, cap - len, ",\"bones\":%d", bones);
+        len += (size_t)snprintf(out + len, cap - len, "}");
         data_off += vpp_align(size);
     }
     snprintf(out + len, cap - len, "]}");
