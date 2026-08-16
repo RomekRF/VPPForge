@@ -305,6 +305,63 @@ static int plat_dialog_save(char *out_utf8, size_t cap, const char *suggest_utf8
     return 1;
 }
 
+/* Pick several VPPs at once for linking. With OFN_ALLOWMULTISELECT the
+   buffer is either one full path, or a directory followed by bare file
+   names, each NUL terminated and the list closed by a second NUL. */
+static void handle_dialog_open_multi(sock_t s) {
+    static wchar_t buf[32768];
+    OPENFILENAMEW ofn;
+    wchar_t dir[MAX_PATH * 2], full[MAX_PATH * 4];
+    const wchar_t *p;
+    char out[16384];
+    size_t len = 0;
+    int n = 0;
+    buf[0] = 0;
+    memset(&ofn, 0, sizeof ofn);
+    ofn.lStructSize = sizeof ofn;
+    ofn.hwndOwner = GetForegroundWindow();
+    ofn.lpstrFilter = L"Red Faction VPPs (*.vpp)\0*.vpp\0All files (*.*)\0*.*\0";
+    ofn.lpstrFile = buf;
+    ofn.nMaxFile = (DWORD)(sizeof buf / sizeof *buf);
+    ofn.lpstrTitle = L"Link VPPs for previews";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR |
+                OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+    if (!GetOpenFileNameW(&ofn)) { resp_json(s, "{\"cancel\":1}"); return; }
+    len += (size_t)snprintf(out + len, sizeof out - len, "{\"list\":[");
+    wcsncpy(dir, buf, MAX_PATH * 2 - 1); dir[MAX_PATH * 2 - 1] = 0;
+    p = buf + wcslen(buf) + 1;
+    if (!*p) {
+        /* exactly one file: the buffer holds its full path */
+        p = buf;
+        dir[0] = 0;
+    }
+    while (*p) {
+        char *u, esc[600];
+        int id;
+        if (dir[0]) _snwprintf(full, MAX_PATH * 4 - 1, L"%s\\%s", dir, p);
+        else wcsncpy(full, p, MAX_PATH * 4 - 1);
+        full[MAX_PATH * 4 - 1] = 0;
+        u = wide_to_utf8(full);
+        if (u) {
+            id = register_path(u);
+            free(u);
+            if (id >= 0) {
+                char *nm = wide_to_utf8(p);
+                json_escape(esc, sizeof esc, nm ? nm : "");
+                if (nm) free(nm);
+                if (len + 700 < sizeof out) {
+                    len += (size_t)snprintf(out + len, sizeof out - len, "%s{\"id\":%d,\"name\":\"%s\"}",
+                                            n ? "," : "", id, esc);
+                    n++;
+                }
+            }
+        }
+        p += wcslen(p) + 1;
+    }
+    snprintf(out + len, sizeof out - len, "]}");
+    resp_json(s, out);
+}
+
 /* modern Vista+ folder picker; owner keeps it in front of the app window */
 static int plat_dialog_folder(char *out_utf8, size_t cap) {
     IFileOpenDialog *fd = NULL;
@@ -1446,6 +1503,14 @@ static void handle_conn(sock_t s) {
         else { resp_json(s, "{\"ok\":0}"); return; }
 #else
         resp_json(s, "{\"ok\":0}");
+#endif
+        return;
+    }
+    if (!strcmp(method, "GET") && !strncmp(target, "/dialog/openmulti", 17)) {
+#ifdef _WIN32
+        handle_dialog_open_multi(s);
+#else
+        resp_json(s, "{\"cancel\":1}");
 #endif
         return;
     }

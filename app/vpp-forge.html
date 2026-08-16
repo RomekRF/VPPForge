@@ -2805,9 +2805,15 @@ function linkVpp(srcId,name,quiet){
 }
 function linkVppDialog(){
   if(!BRIDGE){toast("Linking needs the desktop app",true);return;}
-  bridgeJson("/dialog/open").then(j=>{
-    if(j.cancel)return;
-    linkVpp(j.id,j.name,false);
+  bridgeJson("/dialog/openmulti").then(j=>{
+    if(j.cancel||!j.list||!j.list.length)return;
+    const todo=j.list.filter(v=>!refAlready(v.id));
+    if(!todo.length){toast("Already linked");return;}
+    Promise.all(todo.map(v=>linkVpp(v.id,v.name,true))).then(rs=>{
+      const ok=rs.filter(Boolean).length;
+      toast(ok?"Linked "+plural(ok,"VPP")+" for previews":"Could not read those VPPs",!ok);
+      refreshAll();
+    });
   }).catch(()=>toast("Open dialog failed",true));
 }
 function unlinkRef(i){
@@ -3019,26 +3025,121 @@ function extractIds(ids){
     toast("Extracted "+plural(list.length,"file")+" as ZIP");
   }
 }
-async function extractToFolder(list){
-  let dir;
+/* Where each kind of file belongs when extracting. Keyed the way a modder
+   thinks about them rather than by internal category. */
+const EXPORT_GROUPS=[
+  {key:"textures",label:"Textures",hint:"TGA, DDS, PCX, VBM"},
+  {key:"meshes",  label:"Meshes",  hint:"V3M, V3C"},
+  {key:"effects", label:"Effects", hint:"VFX"},
+  {key:"anims",   label:"Animations",hint:"RFA, MVF"},
+  {key:"levels",  label:"Levels",  hint:"RFL"},
+  {key:"audio",   label:"Audio",   hint:"WAV, MP3, OGG"},
+  {key:"tables",  label:"Tables and text",hint:"TBL, TXT"},
+  {key:"other",   label:"Everything else",hint:""},
+];
+function exportGroup(e){
+  const k=e.tkey;
+  if(k==="tga"||k==="dds"||k==="pcx"||k==="vbm")return "textures";
+  if(k==="v3m"||k==="v3c")return "meshes";
+  if(k==="vfx")return "effects";
+  if(k==="rfa"||k==="mvf")return "anims";
+  if(k==="rfl")return "levels";
+  if(k==="audio")return "audio";
+  if(k==="text")return "tables";
+  return "other";
+}
+const exportDirs=()=>APP_SETTINGS.exportDirs||(APP_SETTINGS.exportDirs={});
+function showExportFolders(){
+  let ov=$("expdirs");
+  if(!ov){
+    ov=document.createElement("div");
+    ov.id="expdirs";
+    ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
+    ov.addEventListener("mousedown",ev=>{if(ev.target===ov)ov.remove();});
+    document.body.appendChild(ov);
+  }
+  const draw=()=>{
+    const d=exportDirs();
+    ov.innerHTML='<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);max-width:560px;width:calc(100% - 48px);max-height:calc(100% - 48px);overflow:auto;padding:22px 26px">'
+      +'<h2 style="font-size:15px;margin-bottom:4px">Export folders</h2>'
+      +'<p style="color:var(--text-2);font-size:12px;margin-bottom:14px">Give a folder to a file type and extracting sends it straight there, no prompt. Anything without one asks where to go.</p>'
+      +EXPORT_GROUPS.map(g=>'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">'
+        +'<div style="width:120px;flex:none"><div style="font:500 12px var(--sans)">'+g.label+'</div>'
+        +(g.hint?'<div style="font:400 10px var(--mono);color:var(--text-3)">'+g.hint+'</div>':'')+'</div>'
+        +'<div style="flex:1;min-width:0;font:400 11px var(--mono);color:'+(d[g.key]?"var(--text-2)":"var(--text-3)")+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d[g.key]||"")+'">'
+        +esc(d[g.key]||"ask each time")+'</div>'
+        +'<button class="btn outline sm" data-pick="'+g.key+'">Choose</button>'
+        +(d[g.key]?'<button class="btn outline sm" data-clear="'+g.key+'">Clear</button>':"")
+        +'</div>').join("")
+      +'<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn outline" id="expClose">Done</button></div></div>';
+    ov.querySelectorAll("[data-pick]").forEach(b=>b.addEventListener("click",()=>{
+      bridgeJson("/dialog/folder").then(j=>{
+        if(j.cancel)return;
+        exportDirs()[b.dataset.pick]=j.dir;
+        saveSettings();draw();
+      }).catch(()=>toast("Could not open the folder picker",true));
+    }));
+    ov.querySelectorAll("[data-clear]").forEach(b=>b.addEventListener("click",()=>{
+      delete exportDirs()[b.dataset.clear];saveSettings();draw();
+    }));
+    $("expClose").addEventListener("click",()=>ov.remove());
+  };
+  draw();
+  ov.style.display="flex";
+}
+/* mesh plus every texture it uses, wherever those live */
+function meshWithTextures(e){
+  const out=[e];
   try{
-    const j=await bridgeJson("/dialog/folder");
-    if(j.cancel)return;
-    dir=j.dir;
-  }catch(_){toast("Could not open the folder picker",true);return;}
-  let n=0;
+    const isVfx=e.tkey==="vfx";
+    const model=getDecoded(e,isVfx?"vfx":"v3m");
+    const seen=new Set([e.id]);
+    for(const tn of model.textureNames||[]){
+      const st=stemOf(tn);
+      const hit=findAsset(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm"||x.tkey==="pcx")&&stemOf(x.name)===st);
+      if(hit&&!seen.has(hit.id)){seen.add(hit.id);out.push(hit);}
+    }
+  }catch(_){}
+  return out;
+}
+async function extractToFolder(list){
+  if(!list.length)return;
+  /* send each file to the folder set for its type; ask once for the rest */
+  const dirs=exportDirs();
+  const byDir=new Map();
+  const ask=[];
   for(const e of list){
+    const d=dirs[exportGroup(e)];
+    if(d){ if(!byDir.has(d))byDir.set(d,[]); byDir.get(d).push(e); }
+    else ask.push(e);
+  }
+  if(ask.length){
+    let dir;
     try{
-      const r=await fetch(bridgeUrl("/extractfile?dir="+encodeURIComponent(dir)+"&name="+encodeURIComponent(e.name)),
-        {method:"POST",body:entryData(e)});
-      if(!r.ok)throw 0;
-      n++;
-    }catch(_){
-      toast("Failed at "+e.name+" ("+n+" of "+list.length+" extracted)",true);
-      return;
+      const j=await bridgeJson("/dialog/folder");
+      if(j.cancel)return;
+      dir=j.dir;
+    }catch(_){toast("Could not open the folder picker",true);return;}
+    if(!byDir.has(dir))byDir.set(dir,[]);
+    byDir.get(dir).push(...ask);
+  }
+  let n=0;
+  for(const [dir,items] of byDir){
+    for(const e of items){
+      try{
+        await ensureData(e); /* linked files may not be fetched yet */
+        const r=await fetch(bridgeUrl("/extractfile?dir="+encodeURIComponent(dir)+"&name="+encodeURIComponent(e.name)),
+          {method:"POST",body:entryData(e)});
+        if(!r.ok)throw 0;
+        n++;
+      }catch(_){
+        toast("Failed at "+e.name+" ("+n+" of "+list.length+" extracted)",true);
+        return;
+      }
     }
   }
-  toast("Extracted "+plural(n,"file")+" to "+dir);
+  const where=byDir.size===1?[...byDir.keys()][0]:plural(byDir.size,"folder");
+  toast("Extracted "+plural(n,"file")+" to "+where);
 }
 /* ---- TGA → DDS conversion · DXT encoder ported from RED Companion ----
    Bounding-box endpoints with 1/16 inset; DXT1 when fully opaque, DXT5 when
@@ -4391,7 +4492,16 @@ function contextItems(){
   const canBig=e&&EXPANDABLE.has(TYPE_META[e.tkey].cat);
   return [
     ...(one&&canBig?[{label:"Open full size",icon:IC.expand,k:"Enter",fn:()=>openLightbox(e)}]:[]),
-    {label:one?"Extract file…":"Extract "+n+" files…",icon:IC.extract,fn:()=>extractIds(state.sel)},
+    {label:one?"Extract file…":"Extract "+n+" files…",icon:IC.extract,k:"Ctrl E",fn:()=>extractIds(state.sel)},
+    ...((()=>{
+      if(!one)return [];
+      const m=byId([...state.sel][0]);
+      if(!m||!(m.tkey==="v3m"||m.tkey==="v3c"||m.tkey==="vfx"))return [];
+      const grp=meshWithTextures(m);
+      if(grp.length<2)return [];
+      return [{label:"Extract with its "+plural(grp.length-1,"texture")+"…",icon:IC.extract,
+        fn:()=>extractToFolder(grp)}];
+    })()),
     ...((()=>{const t=[...state.sel].map(byId).filter(x=>x&&x.tkey==="tga");
       return t.length?[{label:t.length===1?"Replace with DDS":"Replace "+t.length+" TGA with DDS",fn:()=>tgaEntriesToDds(t)}]:[];})()),
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
@@ -4657,9 +4767,17 @@ function menuItems(which){
       {label:"Write view order to VPP",icon:IC.order,off:!sorted,fn:applyViewOrder},
       "-",
       {label:"Replace all TGA with DDS",off:!state.entries.some(e2=>e2.tkey==="tga"),fn:()=>tgaEntriesToDds(state.entries.filter(e2=>e2.tkey==="tga"))},
+      {label:"Export folders…",off:!BRIDGE,fn:showExportFolders},
       "-",
-      {label:"Link a VPP for previews…",off:!BRIDGE,fn:linkVppDialog},
+      {label:"Link VPPs for previews…",off:!BRIDGE,fn:linkVppDialog},
       {label:"Link Red Faction assets",off:!BRIDGE,fn:()=>linkGameAssets(true)},
+      {label:"Link the game automatically · "+((APP_SETTINGS.linkGame??1)===1?"on":"off"),off:!BRIDGE,fn:()=>{
+        APP_SETTINGS.linkGame=((APP_SETTINGS.linkGame??1)===1)?0:1;
+        saveSettings();
+        toast((APP_SETTINGS.linkGame===1)
+          ?"Red Faction assets will link on startup"
+          :"Startup linking off · link manually from Tools");
+      }},
       ...(state.refs.length?[{label:"Unlink all ("+state.refs.length+")",fn:()=>{
         while(state.refs.length)unlinkRef(0);
       }}]:[]),
