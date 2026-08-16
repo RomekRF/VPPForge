@@ -172,6 +172,11 @@ static int token_ok(const char *target) {
 
 /* forward decl: plat_fopen is defined in the platform layer below */
 static FILE *plat_fopen(const char *p, const char *m);
+/* the http helpers are defined further down, but dialog and VPP handlers
+   further up need them */
+static int send_all(sock_t s, const char *buf, size_t len);
+static void resp_json(sock_t s, const char *body);
+static void resp_err(sock_t s, const char *status);
 
 /* ---------------------------------------------------------- recents ------ */
 #define RECENT_MAX 10
@@ -391,11 +396,6 @@ static int plat_dialog_folder(char *out_utf8, size_t cap) {
     if (SUCCEEDED(co)) CoUninitialize();
     return ok;
 }
-
-/* the http helpers live further down; these handlers need them early */
-static int send_all(sock_t s, const char *buf, size_t len);
-static void resp_json(sock_t s, const char *body);
-static void resp_err(sock_t s, const char *status);
 
 /* ------------------- linked VPPs (read-only asset sources) --------------- */
 /* A linked VPP is read by directory first and sliced on demand, so linking
