@@ -4102,10 +4102,13 @@ function render3d(body,e,big,r3opts){
       const c=document.createElement("button");
       c.className="chip3d"+(hit?"":" miss");
       c.textContent=hit?hit.name:tn;
-      c.title=hit?"Used by this mesh · in this VPP · click to view":"Used by this mesh · not in this VPP";
+      c.title=hit?"Used by this mesh · click to view it without leaving the model":"Used by this mesh · not found in this VPP or any linked one";
+      /* peek at the texture over the model instead of navigating away, so
+         several can be checked in turn and Esc lands back on the mesh */
       if(hit)c.addEventListener("click",()=>{
-        state.sel.clear();state.sel.add(hit.id);state.anchor=hit.id;
-        renderRows();renderChrome();renderPreview();scrollToRow(hit.id);
+        ensureData(hit)
+          .then(()=>openLightbox(hit))
+          .catch(()=>toast("Could not read "+hit.name,true));
       });
       conn.appendChild(c);
     }
@@ -4141,7 +4144,7 @@ function render3d(body,e,big,r3opts){
   Promise.all([loadThree(),...prefetch]).then(()=>{
     loading.remove();
     if(!body.isConnected)return;
-    live3d=makeViewer3d(holder,model,{wireBtn:wire,resetBtn:reset,lodSeg,onStats:refreshPills,engine,
+    live3d=makeViewer3d(holder,model,{wireBtn:wire,resetBtn:reset,lodSeg,onStats:refreshPills,engine,camKey:e.id,
       onPlayState:(p)=>{if(onPlayState)onPlayState(p);},
       onProgress:(f,c)=>{if(onProgress)onProgress(f,c);},
       onBounds:(sz)=>{dims=sz;refreshPills(lastSt,lastTally);}});
@@ -4153,6 +4156,7 @@ function render3d(body,e,big,r3opts){
     loading.innerHTML='<div class="t" style="color:var(--warn)">'+esc(err.message)+'</div>';
   });
 }
+const camStore=new Map(); /* last camera per model, kept across previews */
 function makeViewer3d(holder,model,ui){
   const T=window.THREE;
   const ENG=(ui&&ui.engine)||V3M;
@@ -4218,6 +4222,7 @@ function makeViewer3d(holder,model,ui){
     return tex;
   }
   let group=null,grid=null,wireOn=false,lodIdx=0,framed=false,radius=1;
+  let restoreCam=(ui&&ui.camKey!=null)?camStore.get(ui.camKey):null;
   const orbit={theta:0.85,phi:1.1,dist:3,target:new T.Vector3()};
   const home={theta:0.85,phi:1.1,dist:3,target:new T.Vector3()};
   function applyCam(){
@@ -4276,6 +4281,14 @@ function makeViewer3d(holder,model,ui){
       grid=new T.GridHelper(g*2,16,0x3a362f,0x1f1d1a);
       grid.position.set(center.x,box.min.y,center.z);
       scene.add(grid);
+      /* Reset view still frames the model; the saved angle only moves the
+         camera we start at */
+      if(restoreCam){
+        orbit.theta=restoreCam.theta;orbit.phi=restoreCam.phi;orbit.dist=restoreCam.dist;
+        orbit.target.copy(restoreCam.target);
+        restoreCam=null;
+        applyCam();
+      }
     }
     if(ui.onStats)ui.onStats(computeModelStats(model,lodIdx),tally);
   }
@@ -4394,6 +4407,9 @@ function makeViewer3d(holder,model,ui){
       renderer.domElement.toBlob(b=>{if(b)download(b,name);else toast("Snapshot failed",true);},"image/png");
     },
     dispose(){
+      /* remember where the camera was, so reopening this model returns to it */
+      if(ui&&ui.camKey!=null)
+        camStore.set(ui.camKey,{theta:orbit.theta,phi:orbit.phi,dist:orbit.dist,target:orbit.target.clone()});
       alive=false;cancelAnimationFrame(raf);
       if(group)disposeGroup(group);
       if(grid){grid.geometry.dispose();grid.material.dispose();}
@@ -4478,11 +4494,29 @@ window.addEventListener("blur",()=>{closeMenu();closePop();});
 function contextItems(){
   const n=state.sel.size;
   if(!n)return [];
+  /* mesh/effect texture actions, offered wherever the file is being browsed */
+  const texActions=(()=>{
+    const meshes=[...state.sel].map(byId)
+      .filter(x=>x&&(x.tkey==="v3m"||x.tkey==="v3c"||x.tkey==="vfx"));
+    if(!meshes.length)return [];
+    const tex=[],seen=new Set(meshes.map(m=>m.id));
+    for(const m of meshes)
+      for(const t of meshWithTextures(m).slice(1))
+        if(!seen.has(t.id)){seen.add(t.id);tex.push(t);}
+    if(!tex.length)return [];
+    const noun=plural(tex.length,"texture");
+    return [
+      {label:meshes.length>1?"Extract meshes with their "+noun+"…":"Extract with its "+noun+"…",
+       icon:IC.extract,fn:()=>extractToFolder(meshes.concat(tex))},
+      {label:"Extract only its "+noun+"…",icon:IC.extract,fn:()=>extractToFolder(tex)},
+    ];
+  })();
   if(viewingRef()){
     const picked=[...state.sel].map(byId).filter(Boolean);
     return [
       {label:n===1?"Copy into this VPP":"Copy "+n+" files into this VPP",fn:()=>copyRefEntries(picked)},
       {label:n===1?"Extract file…":"Extract "+n+" files…",icon:IC.extract,fn:()=>extractIds(state.sel)},
+      ...texActions,
       {label:n===1?"Copy name":"Copy "+n+" names",fn:copySelectedNames},
     ];
   }
@@ -4493,15 +4527,7 @@ function contextItems(){
   return [
     ...(one&&canBig?[{label:"Open full size",icon:IC.expand,k:"Enter",fn:()=>openLightbox(e)}]:[]),
     {label:one?"Extract file…":"Extract "+n+" files…",icon:IC.extract,k:"Ctrl E",fn:()=>extractIds(state.sel)},
-    ...((()=>{
-      if(!one)return [];
-      const m=byId([...state.sel][0]);
-      if(!m||!(m.tkey==="v3m"||m.tkey==="v3c"||m.tkey==="vfx"))return [];
-      const grp=meshWithTextures(m);
-      if(grp.length<2)return [];
-      return [{label:"Extract with its "+plural(grp.length-1,"texture")+"…",icon:IC.extract,
-        fn:()=>extractToFolder(grp)}];
-    })()),
+    ...texActions,
     ...((()=>{const t=[...state.sel].map(byId).filter(x=>x&&x.tkey==="tga");
       return t.length?[{label:t.length===1?"Replace with DDS":"Replace "+t.length+" TGA with DDS",fn:()=>tgaEntriesToDds(t)}]:[];})()),
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
