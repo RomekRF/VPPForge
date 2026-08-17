@@ -4514,10 +4514,14 @@ function contextItems(){
         if(!seen.has(t.id)){seen.add(t.id);tex.push(t);}
     if(!tex.length)return [];
     const noun=plural(tex.length,"texture");
+    const what=meshes.length>1?plural(meshes.length,"mesh")+" and "+noun:"mesh and "+noun;
+    /* say where it goes once folders are set, so the routing is not a secret */
+    const routed=EXPORT_GROUPS.some(g=>exportDirs()[g.key]);
     return [
-      {label:meshes.length>1?"Extract meshes with their "+noun+"…":"Extract with its "+noun+"…",
+      {label:routed?"Extract "+what+" to their folders…":"Extract "+what+"…",
        icon:IC.extract,fn:()=>extractToFolder(meshes.concat(tex))},
-      {label:"Extract only its "+noun+"…",icon:IC.extract,fn:()=>extractToFolder(tex)},
+      {label:routed?"Extract only the "+noun+" to its folder…":"Extract only the "+noun+"…",
+       icon:IC.extract,fn:()=>extractToFolder(tex)},
     ];
   })();
   if(viewingRef()){
