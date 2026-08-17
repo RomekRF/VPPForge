@@ -2985,7 +2985,7 @@ function saveArchive(forceDialog,quiet){
   toast("Saved "+nm+" · "+fmtBytes(built.total));
 }
 function bridgeLoad(id,name){
-  fetch(bridgeUrl("/data?id="+id))
+  return fetch(bridgeUrl("/data?id="+id))
     .then(r=>{if(!r.ok)throw 0;return r.arrayBuffer();})
     .then(ab=>{
       /* a VPP opens as an archive; anything else opens as a single asset */
@@ -4121,19 +4121,34 @@ function render3d(body,e,big,r3opts){
       });
       conn.appendChild(c);
     }
-    const selAll=document.createElement("button");
-    selAll.className="btn outline sm";
-    selAll.textContent="Select mesh + textures";
-    selAll.title="Select this mesh and every texture it uses that is in this VPP";
-    selAll.addEventListener("click",()=>{
-      const s=new Set([e.id]);
-      for(const tn of model.textureNames){const hit=texEntryFor(tn);if(hit)s.add(hit.id);}
-      state.sel=s;state.anchor=e.id;
-      state.typeFilter=null; /* back to All files so the whole selection is visible */
-      refreshList();
-      toast(plural(s.size,"file")+" selected · mesh and its textures");
-    });
-    conn.appendChild(selAll);
+    /* nothing to select against when viewing a single file */
+    if(!state.loose){
+      const selAll=document.createElement("button");
+      selAll.className="btn outline sm";
+      selAll.textContent="Select mesh + textures";
+      selAll.title="Select this mesh and every texture it uses that is in this VPP";
+      selAll.addEventListener("click",()=>{
+        const s=new Set([e.id]);
+        for(const tn of model.textureNames){const hit=texEntryFor(tn);if(hit)s.add(hit.id);}
+        state.sel=s;state.anchor=e.id;
+        state.typeFilter=null; /* back to All files so the whole selection is visible */
+        refreshList();
+        toast(plural(s.size,"file")+" selected · mesh and its textures");
+      });
+      conn.appendChild(selAll);
+    }
+    /* offer to go looking when textures are not here */
+    if(model.textureNames.some(tn=>!texEntryFor(tn))&&BRIDGE){
+      const find=document.createElement("button");
+      find.className="btn outline sm";
+      find.textContent="Find missing textures…";
+      find.title="Link a VPP that holds them, for previews only";
+      find.addEventListener("click",()=>{
+        if((APP_SETTINGS.linkGame??1)===1&&!state.refs.length)linkGameAssets(true);
+        else linkVppDialog();
+      });
+      conn.appendChild(find);
+    }
     wrapOuter.appendChild(conn);
   }
   wrapOuter.appendChild(holder);
@@ -5353,15 +5368,20 @@ syncNoDoc();
 })();
 if(BRIDGE){
   if(BRIDGE.ver)$("esVer").textContent="v"+BRIDGE.ver;
-  bridgeJson("/open").then(j=>{
-    if(j&&j.id!=null)bridgeLoad(j.id,j.name);
-    else renderEmptyRecents();
+  const opened=bridgeJson("/open").then(j=>{
+    if(j&&j.id!=null)return bridgeLoad(j.id,j.name);
+    renderEmptyRecents();
   }).catch(()=>{});
   if(BRIDGE.installed)showWelcome(true);
   /* quiet check a few seconds in, so it never delays opening a file */
   setTimeout(()=>checkForUpdates(false),4000);
-  /* link the game's own VPPs so stock textures resolve without setup */
-  setTimeout(()=>{if((APP_SETTINGS.linkGame??1)===1)linkGameAssets(false);},1200);
+  /* Link the game so stock textures resolve without setup, but not when we
+     were opened on a single file: indexing the game to look at one mesh is
+     work for nothing, and it can be linked from the viewer on demand. */
+  opened.then(()=>{
+    if(state.loose)return;
+    if((APP_SETTINGS.linkGame??1)===1)setTimeout(()=>linkGameAssets(false),1000);
+  });
 }
 </script>
 </body>
