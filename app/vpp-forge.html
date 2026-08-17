@@ -188,6 +188,15 @@ body.browsing-ref #rows .row .fn{color:var(--text-2)}
 body.browsing-ref #colHead{background:var(--accent-soft); color:var(--text-2)}
 body.browsing-ref #colHead::after{content:"linked · read-only"; position:absolute; right:10px; font:400 10px var(--mono); color:var(--text-3)}
 body.browsing-ref #colHead{position:relative}
+/* Viewing one file: drop the archive furniture and let the preview have
+   the window. File > Open still brings the full workbench back. */
+body.loose-file #toolbar,
+body.loose-file #listCol,
+body.loose-file #vdiv,
+body.loose-file #typeTree,
+body.loose-file #hdiv{display:none}
+body.loose-file #sidebar{width:100%!important; max-width:none; border-right:none}
+body.loose-file #prevBody{padding:0 10px 10px}
 .conn3d{display:flex; flex-wrap:wrap; gap:3px; align-items:center; margin:2px 0 6px; flex:none}
 .chip3d{
   height:18px; padding:0 7px; font:400 10.5px var(--mono); cursor:pointer;

@@ -868,48 +868,66 @@ static void write_associations(const wchar_t *exe) {
    Only formats specific to the game: .tga, .wav and friends are left alone
    because they belong to whatever the user already uses for them.
    Any previous handler is remembered so uninstall can hand it back. */
-static const wchar_t *ASSET_EXTS[] = { L".vbm", L".v3m", L".v3c", L".vfx", L".rfa", L".mvf", L".vf" };
-#define ASSET_EXT_COUNT (sizeof ASSET_EXTS / sizeof *ASSET_EXTS)
+/* One ProgID per extension, so Explorer's Type column names each format
+   instead of lumping them all under one label. */
+static const struct { const wchar_t *ext, *progid, *desc; } ASSET_TYPES[] = {
+    { L".v3m", L"VPPForge.v3m", L"Red Faction mesh"             },
+    { L".v3c", L"VPPForge.v3c", L"Red Faction character"        },
+    { L".vfx", L"VPPForge.vfx", L"Red Faction effect"           },
+    { L".vbm", L"VPPForge.vbm", L"Red Faction animated texture" },
+    { L".rfa", L"VPPForge.rfa", L"Red Faction animation"        },
+    { L".mvf", L"VPPForge.mvf", L"Red Faction motion"           },
+    { L".vf",  L"VPPForge.vf",  L"Red Faction font"             },
+};
+#define ASSET_TYPE_COUNT (sizeof ASSET_TYPES / sizeof *ASSET_TYPES)
 
 static void write_asset_associations(const wchar_t *exe) {
-    wchar_t buf[MAX_PATH * 2 + 16];
+    wchar_t buf[MAX_PATH * 2 + 16], key[200];
     size_t i;
-    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset", NULL, L"Red Faction asset");
-    _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\",0", exe); buf[MAX_PATH * 2 + 15] = 0;
-    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset\\DefaultIcon", NULL, buf);
-    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset\\shell\\open", NULL, L"View in VPP Forge");
-    _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\" \"%%1\"", exe); buf[MAX_PATH * 2 + 15] = 0;
-    reg_set_str(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset\\shell\\open\\command", NULL, buf);
-    for (i = 0; i < ASSET_EXT_COUNT; i++) {
-        wchar_t key[160], prev[160] = L"";
+    for (i = 0; i < ASSET_TYPE_COUNT; i++) {
+        wchar_t prev[160] = L"";
         DWORD sz = sizeof prev;
-        _snwprintf(key, 159, L"Software\\Classes\\%s", ASSET_EXTS[i]); key[159] = 0;
-        /* remember whoever had it, unless it was already us */
+        _snwprintf(key, 199, L"Software\\Classes\\%s", ASSET_TYPES[i].progid); key[199] = 0;
+        reg_set_str(HKEY_CURRENT_USER, key, NULL, ASSET_TYPES[i].desc);
+        _snwprintf(key, 199, L"Software\\Classes\\%s\\DefaultIcon", ASSET_TYPES[i].progid); key[199] = 0;
+        _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\",0", exe); buf[MAX_PATH * 2 + 15] = 0;
+        reg_set_str(HKEY_CURRENT_USER, key, NULL, buf);
+        _snwprintf(key, 199, L"Software\\Classes\\%s\\shell\\open", ASSET_TYPES[i].progid); key[199] = 0;
+        reg_set_str(HKEY_CURRENT_USER, key, NULL, L"View in VPP Forge");
+        _snwprintf(key, 199, L"Software\\Classes\\%s\\shell\\open\\command", ASSET_TYPES[i].progid); key[199] = 0;
+        _snwprintf(buf, MAX_PATH * 2 + 15, L"\"%s\" \"%%1\"", exe); buf[MAX_PATH * 2 + 15] = 0;
+        reg_set_str(HKEY_CURRENT_USER, key, NULL, buf);
+        /* point the extension at it, remembering whoever had it before */
+        _snwprintf(key, 199, L"Software\\Classes\\%s", ASSET_TYPES[i].ext); key[199] = 0;
         if (RegGetValueW(HKEY_CURRENT_USER, key, NULL, RRF_RT_REG_SZ, NULL, prev, &sz) == ERROR_SUCCESS &&
-            prev[0] && wcscmp(prev, L"VPPForge.Asset") != 0) {
-            wchar_t bk[200];
-            _snwprintf(bk, 199, L"Software\\VPPForge\\PrevAssoc"); bk[199] = 0;
-            reg_set_str(HKEY_CURRENT_USER, bk, ASSET_EXTS[i], prev);
-        }
-        reg_set_str(HKEY_CURRENT_USER, key, NULL, L"VPPForge.Asset");
+            prev[0] && wcsncmp(prev, L"VPPForge.", 9) != 0)
+            reg_set_str(HKEY_CURRENT_USER, L"Software\\VPPForge\\PrevAssoc", ASSET_TYPES[i].ext, prev);
+        reg_set_str(HKEY_CURRENT_USER, key, NULL, ASSET_TYPES[i].progid);
     }
+    /* the single shared type used by earlier builds */
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset");
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 }
 
 static void remove_asset_associations(void) {
     size_t i;
-    for (i = 0; i < ASSET_EXT_COUNT; i++) {
-        wchar_t key[160], cur[160] = L"", prev[160] = L"";
+    for (i = 0; i < ASSET_TYPE_COUNT; i++) {
+        wchar_t key[200], cur[160] = L"", prev[160] = L"";
         DWORD sz = sizeof cur, psz = sizeof prev;
-        _snwprintf(key, 159, L"Software\\Classes\\%s", ASSET_EXTS[i]); key[159] = 0;
-        if (RegGetValueW(HKEY_CURRENT_USER, key, NULL, RRF_RT_REG_SZ, NULL, cur, &sz) != ERROR_SUCCESS) continue;
-        if (wcscmp(cur, L"VPPForge.Asset") != 0) continue; /* someone else owns it now */
-        if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\VPPForge\\PrevAssoc", ASSET_EXTS[i],
-                         RRF_RT_REG_SZ, NULL, prev, &psz) == ERROR_SUCCESS && prev[0])
-            reg_set_str(HKEY_CURRENT_USER, key, NULL, prev);   /* give it back */
-        else
-            RegDeleteTreeW(HKEY_CURRENT_USER, key);
+        _snwprintf(key, 199, L"Software\\Classes\\%s", ASSET_TYPES[i].ext); key[199] = 0;
+        if (RegGetValueW(HKEY_CURRENT_USER, key, NULL, RRF_RT_REG_SZ, NULL, cur, &sz) == ERROR_SUCCESS &&
+            !wcsncmp(cur, L"VPPForge.", 9)) {
+            if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\VPPForge\\PrevAssoc", ASSET_TYPES[i].ext,
+                             RRF_RT_REG_SZ, NULL, prev, &psz) == ERROR_SUCCESS && prev[0])
+                reg_set_str(HKEY_CURRENT_USER, key, NULL, prev);   /* give it back */
+            else
+                RegDeleteTreeW(HKEY_CURRENT_USER, key);
+        }
+        _snwprintf(key, 199, L"Software\\Classes\\%s", ASSET_TYPES[i].progid); key[199] = 0;
+        RegDeleteTreeW(HKEY_CURRENT_USER, key);
     }
     RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\VPPForge.Asset");
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 }
 
 static void write_uninstall_entry(const wchar_t *exe, const wchar_t *dir) {
