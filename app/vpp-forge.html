@@ -220,6 +220,15 @@ body.loose-file #prevBody{padding:0 10px 10px}
 .placeholder .t{color:var(--text-2); font-weight:500}
 
 .viewer-bar{display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap; min-height:22px}
+
+#rsdlg input[type=number], #rsdlg select{height:24px; background:var(--surface-2); color:var(--text);
+  border:1px solid var(--border-2); border-radius:var(--r-s); padding:0 6px; font:400 12px var(--mono)}
+#rsdlg select{font-family:var(--sans)}
+#rsdlg input[type=number]:focus, #rsdlg select:focus{outline:none; border-color:var(--accent)}
+#rsdlg label{display:inline-flex; align-items:center; gap:5px; font:400 12px var(--sans); color:var(--text-2)}
+#rsdlg .rsrow{display:flex; align-items:center; gap:10px; padding:5px 0}
+#rsdlg .rsrow > .lb{width:96px; flex:none; font:500 12px var(--sans); color:var(--text)}
+#rsdlg .rsrow > .in{flex:1; min-width:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
 .vinfo{font:400 11px var(--sans); color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .vinfo b{color:var(--text); font-weight:600}
 .vinfo .warn{color:var(--warn)}
@@ -2555,6 +2564,9 @@ function ensureData(e){
     .catch(err=>{delete e._loading;throw err;});
   return e._loading;
 }
+/* every key whose files hold pixels a mesh or effect can reference.
+   PNG and JPEG join the list with Alpine Faction 1.4. */
+const isTexKey=k=>k==="tga"||k==="dds"||k==="png"||k==="jpg"||k==="vbm"||k==="pcx";
 const decodeCache=new Map(); // id → {kind, value}
 
 const extOf=n=>{const i=n.lastIndexOf(".");return i<0?"":n.slice(i+1).toLowerCase();};
@@ -2567,6 +2579,9 @@ function typeKeyOf(n){
   if(x==="v3m")return "v3m";
   if(x==="v3c")return "v3c";
   if(x==="pcx")return "pcx";
+  if(x==="png")return "png";
+  if(x==="jpg"||x==="jpeg")return "jpg";
+  if(x==="atx")return "atx";
   if(x==="vf")return "vf";
   if(x==="rfa")return "rfa";
   if(x==="mvf")return "mvf";
@@ -2587,6 +2602,9 @@ const TYPE_META={
   text: {tree:"Tables + text",      list:"Text",           color:"var(--c-text)",  disk:"#c9a35a", cat:"text"},
   pcx:  {tree:"Images · PCX",       list:"PCX graphic",    color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
   dds:  {tree:"Textures · DDS",     list:"DDS texture",    color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
+  png:  {tree:"Textures · PNG",     list:"PNG graphic",    color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
+  jpg:  {tree:"Textures · JPEG",    list:"JPEG graphic",   color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
+  atx:  {tree:"Alpine textures · ATX",list:"Alpine texture",color:"var(--c-text)", disk:"#c9a35a", cat:"text"},
   vf:   {tree:"Fonts · VF",         list:"RF font",        color:"var(--c-text)",  disk:"#c9a35a", cat:"font"},
   rfa:  {tree:"Character anims · RFA",list:"Character animation",color:"var(--c-anim)",disk:"#a58cc8", cat:"rfa"},
   mvf:  {tree:"Motions · MVF",      list:"Motion capture", color:"var(--c-anim)",  disk:"#a58cc8", cat:"rfa"},
@@ -2622,6 +2640,26 @@ function toast(msg,err){
   toast._t=setTimeout(()=>t.classList.remove("show"),err?4200:2400);
 }
 /* ---- info probes (feed the Info column, like classic VPVIEW32) ---- */
+/* walk the JPEG marker segments to the frame header, the one place the size
+   is written; everything ahead of it is metadata of unknown length */
+function jpegFrame(d){
+  let i=2;
+  while(i+9<d.length){
+    if(d[i]!==0xFF){i++;continue;}
+    let m=d[i+1];
+    while(m===0xFF&&i+2<d.length){i++;m=d[i+1];}
+    if(m===0xD8||m===0x01||(m>=0xD0&&m<=0xD7)){i+=2;continue;}
+    if(m===0xD9||m===0xDA)return null;
+    const len=(d[i+2]<<8)|d[i+3];
+    if(len<2)return null;
+    /* SOFn, but not DHT (C4), JPG (C8) or DAC (CC), which share the range */
+    if(m>=0xC0&&m<=0xCF&&m!==0xC4&&m!==0xC8&&m!==0xCC)
+      return {h:(d[i+5]<<8)|d[i+6],w:(d[i+7]<<8)|d[i+8],comps:d[i+9],
+              prog:m===0xC2||m===0xC6||m===0xCA||m===0xCE};
+    i+=2+len;
+  }
+  return null;
+}
 function probeInfo(e){
   const key=typeKeyOf(e.name);
   e.tkey=key;
@@ -2662,6 +2700,13 @@ function probeInfo(e){
         const mm=(dv.getUint32(8,true)&0x20000)?dv.getUint32(28,true):1;
         e.info=w+" × "+h+" · "+nm+(mm>1?" · "+mm+" mips":"");
       }catch(_){e.info="";}
+    }else if(key==="png"&&d.length>=26&&dv.getUint32(0,false)===0x89504E47){
+      const w=dv.getUint32(16,false),h=dv.getUint32(20,false);
+      const types={0:"grey",2:"RGB",3:"indexed",4:"grey+alpha",6:"RGBA"};
+      e.info=w+" × "+h+" · "+d[24]+"-bit "+(types[d[25]]||"?")+" · PNG";
+    }else if(key==="jpg"&&d.length>=4&&d[0]===0xFF&&d[1]===0xD8){
+      const f=jpegFrame(d);
+      e.info=f?f.w+" × "+f.h+" · "+(f.comps===1?"greyscale":f.comps===4?"CMYK":"colour")+(f.prog?" · progressive":"")+" · JPEG":"JPEG";
     }else if(key==="pcx"&&d.length>=128&&d[0]===0x0A){
       const w=(d[8]|(d[9]<<8))-(d[4]|(d[5]<<8))+1;
       const h=(d[10]|(d[11]<<8))-(d[6]|(d[7]<<8))+1;
@@ -3037,24 +3082,24 @@ function extractIds(ids){
 /* Where each kind of file belongs when extracting. Keyed the way a modder
    thinks about them rather than by internal category. */
 const EXPORT_GROUPS=[
-  {key:"textures",label:"Textures",hint:"TGA, DDS, PCX, VBM"},
+  {key:"textures",label:"Textures",hint:"TGA, DDS, PNG, JPEG, PCX, VBM"},
   {key:"meshes",  label:"Meshes",  hint:"V3M, V3C"},
   {key:"effects", label:"Effects", hint:"VFX"},
   {key:"anims",   label:"Animations",hint:"RFA, MVF"},
   {key:"levels",  label:"Levels",  hint:"RFL"},
   {key:"audio",   label:"Audio",   hint:"WAV, MP3, OGG"},
-  {key:"tables",  label:"Tables and text",hint:"TBL, TXT"},
+  {key:"tables",  label:"Tables and text",hint:"TBL, TXT, ATX"},
   {key:"other",   label:"Everything else",hint:""},
 ];
 function exportGroup(e){
   const k=e.tkey;
-  if(k==="tga"||k==="dds"||k==="pcx"||k==="vbm")return "textures";
+  if(isTexKey(k))return "textures";
   if(k==="v3m"||k==="v3c")return "meshes";
   if(k==="vfx")return "effects";
   if(k==="rfa"||k==="mvf")return "anims";
   if(k==="rfl")return "levels";
   if(k==="audio")return "audio";
-  if(k==="text")return "tables";
+  if(k==="text"||k==="atx")return "tables";
   return "other";
 }
 const exportDirs=()=>APP_SETTINGS.exportDirs||(APP_SETTINGS.exportDirs={});
@@ -3105,7 +3150,7 @@ function meshWithTextures(e){
     const seen=new Set([e.id]);
     for(const tn of model.textureNames||[]){
       const st=stemOf(tn);
-      const hit=findAsset(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm"||x.tkey==="pcx")&&stemOf(x.name)===st);
+      const hit=findAsset(x=>isTexKey(x.tkey)&&stemOf(x.name)===st);
       if(hit&&!seen.has(hit.id)){seen.add(hit.id);out.push(hit);}
     }
   }catch(_){}
@@ -3213,64 +3258,83 @@ function dxtAlphaBlock(block,dest,off){
   dest[off+2]=lo&0xFF;dest[off+3]=(lo>>8)&0xFF;dest[off+4]=(lo>>16)&0xFF;
   dest[off+5]=hi&0xFF;dest[off+6]=(hi>>8)&0xFF;dest[off+7]=(hi>>16)&0xFF;
 }
-function encodeDds(w,h,px,wantDXT5){
+/* levels[0] is the full-size image; anything after it is a mipmap, smallest
+   last. One level writes exactly the file the single-level encoder always
+   wrote, so converted textures are unchanged. */
+function encodeDdsLevels(levels,wantDXT5){
+  const w=levels[0].w,h=levels[0].h;
   if(w<4||h<4)throw new Error("smaller than 4×4");
-  const bw=(w+3)>>2,bh=(h+3)>>2;
   const blockSize=wantDXT5?16:8;
-  const dataSize=bw*bh*blockSize;
-  const out=new Uint8Array(128+dataSize);
+  const bytesOf=l=>(((l.w+3)>>2)*((l.h+3)>>2))*blockSize;
+  const many=levels.length>1;
+  let total=0;
+  for(const l of levels)total+=bytesOf(l);
+  const out=new Uint8Array(128+total);
   const hv=new DataView(out.buffer);
   hv.setUint32(0,0x20534444,true);
   hv.setUint32(4,124,true);
-  hv.setUint32(8,0x1|0x2|0x4|0x1000|0x80000,true);
+  hv.setUint32(8,0x1|0x2|0x4|0x1000|0x80000|(many?0x20000:0),true);
   hv.setUint32(12,h,true);
   hv.setUint32(16,w,true);
-  hv.setUint32(20,dataSize,true);
+  hv.setUint32(20,bytesOf(levels[0]),true);
+  if(many)hv.setUint32(28,levels.length,true);
   hv.setUint32(76,32,true);
   hv.setUint32(80,0x04,true);
   out[84]=0x44;out[85]=0x58;out[86]=0x54;out[87]=wantDXT5?0x35:0x31;
-  hv.setUint32(108,0x1000,true);
+  hv.setUint32(108,0x1000|(many?0x8|0x400000:0),true);
   const block=new Uint8Array(64);
   let dest=128;
-  for(let by=0;by<bh;by++)for(let bx=0;bx<bw;bx++){
-    for(let py=0;py<4;py++){
-      const sy=Math.min(by*4+py,h-1);
-      for(let pxi=0;pxi<4;pxi++){
-        const sx=Math.min(bx*4+pxi,w-1);
-        const s=(sy*w+sx)*4,d=(py*4+pxi)*4;
-        block[d]=px[s];block[d+1]=px[s+1];block[d+2]=px[s+2];block[d+3]=px[s+3];
+  for(const l of levels){
+    const bw=(l.w+3)>>2,bh=(l.h+3)>>2,px=l.px;
+    for(let by=0;by<bh;by++)for(let bx=0;bx<bw;bx++){
+      for(let py=0;py<4;py++){
+        const sy=Math.min(by*4+py,l.h-1);
+        for(let pxi=0;pxi<4;pxi++){
+          const sx=Math.min(bx*4+pxi,l.w-1);
+          const s=(sy*l.w+sx)*4,d=(py*4+pxi)*4;
+          block[d]=px[s];block[d+1]=px[s+1];block[d+2]=px[s+2];block[d+3]=px[s+3];
+        }
       }
+      if(wantDXT5){dxtAlphaBlock(block,out,dest);dxtColorBlock(block,out,dest+8);dest+=16;}
+      else{dxtColorBlock(block,out,dest);dest+=8;}
     }
-    if(wantDXT5){dxtAlphaBlock(block,out,dest);dxtColorBlock(block,out,dest+8);dest+=16;}
-    else{dxtColorBlock(block,out,dest);dest+=8;}
   }
   return out;
+}
+function encodeDds(w,h,px,wantDXT5){return encodeDdsLevels([{w,h,px}],wantDXT5);}
+/* the modal progress box the batch tools put up while they work */
+function progressOverlay(title){
+  const ov=document.createElement("div");
+  ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
+  ov.innerHTML=
+    '<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);width:min(340px,calc(100% - 48px));padding:18px 20px">'
+    +'<div style="font:600 13px var(--sans);margin-bottom:10px">'+esc(title)+'</div>'
+    +'<div style="height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden;margin-bottom:8px"><div class="pgfill" style="height:100%;width:0%;background:var(--accent);transition:width .15s"></div></div>'
+    +'<div class="pglabel" style="font:400 11px var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">starting…</div>'
+    +'</div>';
+  document.body.appendChild(ov);
+  const fill=ov.querySelector(".pgfill"),label=ov.querySelector(".pglabel");
+  return {
+    set(frac,text){fill.style.width=Math.round(frac*100)+"%";label.textContent=text;},
+    /* yield so the browser repaints between items, or the bar never moves */
+    paint:()=>new Promise(r=>setTimeout(r,0)),
+    done(){ov.remove();},
+  };
 }
 async function tgaEntriesToDds(list){
   list=list.filter(e=>e.tkey==="tga");
   if(!list.length){toast("No TGA files to convert",true);return;}
   if(tgaEntriesToDds._busy)return;
   tgaEntriesToDds._busy=true;
-  const ov=document.createElement("div");
-  ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
-  ov.innerHTML=
-    '<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);width:min(340px,calc(100% - 48px));padding:18px 20px">'
-    +'<div style="font:600 13px var(--sans);margin-bottom:10px">Converting TGA → DDS</div>'
-    +'<div style="height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden;margin-bottom:8px"><div id="convFill" style="height:100%;width:0%;background:var(--accent);transition:width .15s"></div></div>'
-    +'<div id="convLabel" style="font:400 11px var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">starting…</div>'
-    +'</div>';
-  document.body.appendChild(ov);
-  const fill=ov.querySelector("#convFill"),label=ov.querySelector("#convLabel");
-  const paint=()=>new Promise(r=>setTimeout(r,0));
+  const prog=progressOverlay("Converting TGA → DDS");
   const pre=snapEntries();
   let ok=0,dxt1=0,dxt5=0;
-  const failed=[],newSel=new Set();
+  const failed=[],failedEntries=[],newSel=new Set();
   try{
     for(let i=0;i<list.length;i++){
       const e=list[i];
-      label.textContent=(i+1)+" of "+list.length+" · "+e.name;
-      fill.style.width=Math.round(i/list.length*100)+"%";
-      await paint();
+      prog.set(i/list.length,(i+1)+" of "+list.length+" · "+e.name);
+      await prog.paint();
       try{
         const dec=decodeTga(entryData(e));
         /* DXT is 4×4 blocks; D3D requires multiples of 4 or texture creation
@@ -3291,12 +3355,12 @@ async function tgaEntriesToDds(list){
         decodeCache.delete(e.id);
         if(hasA)dxt5++;else dxt1++;
         ok++;newSel.add(ne.id);
-      }catch(err){failed.push(e.name+" ("+err.message+")");}
+      }catch(err){failed.push(e.name+" ("+err.message+")");failedEntries.push(e);}
     }
-    fill.style.width="100%";
-    await paint();
+    prog.set(1,"done");
+    await prog.paint();
   }finally{
-    ov.remove();
+    prog.done();
     tgaEntriesToDds._busy=false;
   }
   if(ok){
@@ -3311,9 +3375,284 @@ async function tgaEntriesToDds(list){
   if(failed.length){
     openPop('<h3>Kept as TGA</h3><ul>'
       +failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")
-      +'</ul><div style="padding:4px 10px 8px;color:var(--text-2);font-size:11px;max-width:300px">DXT compression works in 4×4 blocks, and the game\'s renderer rejects DDS textures whose width or height is not a multiple of 4. Resize these first (RED Companion can), then convert.</div>',
+      +'</ul><div style="padding:4px 10px 8px;color:var(--text-2);font-size:11px;max-width:300px">DXT compression works in 4×4 blocks, and the game\'s renderer rejects DDS textures whose width or height is not a multiple of 4.'
+      +(failedEntries.length?' <button class="btn outline sm" id="popResize" style="margin-top:6px">Resize them to a multiple of 4…</button>':' Resize them first, then convert.')
+      +'</div>',
       menuBtn("tools"));
+    const rb=$("popResize");
+    if(rb)rb.addEventListener("click",()=>{closePop();showResizeDialog(failedEntries,{round:"4"});});
   }
+}
+/* ---- Image resizing --------------------------------------------------
+   Decode, redraw at the new size, and re-encode in the format the file
+   already had, so the name never changes and every mesh, level and table
+   that points at it keeps working. PCX and VBM are left out: nothing in
+   the app writes those two back. */
+const RESIZABLE=new Set(["tga","dds","png","jpg"]);
+/* the size probeInfo already read out of the header, no decode needed */
+const dimsOfEntry=e=>{const m=/^(\d+)\s*×\s*(\d+)/.exec(e.info||"");return m?{w:+m[1],h:+m[2]}:null;};
+function encodeTga(w,h,px,alpha){
+  const bpp=alpha?4:3;
+  const out=new Uint8Array(18+w*h*bpp);
+  out[2]=2;                               /* uncompressed true colour */
+  out[12]=w&0xFF;out[13]=(w>>8)&0xFF;
+  out[14]=h&0xFF;out[15]=(h>>8)&0xFF;
+  out[16]=bpp*8;
+  out[17]=alpha?8:0;                      /* alpha bits; origin bottom-left */
+  let o=18;
+  for(let y=h-1;y>=0;y--){                /* TGA rows run bottom-up */
+    let sp=y*w*4;
+    for(let x=0;x<w;x++,sp+=4){
+      out[o++]=px[sp+2];out[o++]=px[sp+1];out[o++]=px[sp];
+      if(alpha)out[o++]=px[sp+3];
+    }
+  }
+  return out;
+}
+function canvasOfPixels(w,h,rgba){
+  const cv=document.createElement("canvas");
+  cv.width=w;cv.height=h;
+  const arr=rgba instanceof Uint8ClampedArray?rgba:new Uint8ClampedArray(rgba.buffer,rgba.byteOffset,rgba.byteLength);
+  cv.getContext("2d",{willReadFrequently:true}).putImageData(new ImageData(arr,w,h),0,0);
+  return cv;
+}
+/* which input samples each output sample draws on, and how much of each:
+   an area average when shrinking, linear interpolation when growing */
+function filterMap(n,m,smooth){
+  const map=new Array(m),ratio=n/m;
+  for(let o=0;o<m;o++){
+    if(!smooth){map[o]=[[Math.min(n-1,Math.floor((o+0.5)*ratio)),1]];continue;}
+    if(ratio>1){
+      const a=o*ratio,b=a+ratio,list=[];
+      let sum=0;
+      for(let i=Math.floor(a);i<Math.min(n,Math.ceil(b));i++){
+        const w=Math.min(i+1,b)-Math.max(i,a);
+        if(w>0){list.push([i,w]);sum+=w;}
+      }
+      for(const p of list)p[1]/=sum;
+      map[o]=list;
+    }else{
+      const f=Math.min(n-1,Math.max(0,(o+0.5)*ratio-0.5));
+      const i0=Math.floor(f),t=f-i0;
+      map[o]=t>0?[[i0,1-t],[Math.min(n-1,i0+1),t]]:[[i0,1]];
+    }
+  }
+  return map;
+}
+/* Resampling is done here rather than by drawing into a canvas because the
+   canvas works in premultiplied alpha: it zeroes the colour of every fully
+   transparent texel. RF textures carry real colour under alpha 0, and the
+   game's filtering still reads it, so losing it leaves dark fringes around
+   cut-outs. Two separable passes, X then Y, through a float buffer. */
+function resamplePixels(src,sw,sh,dw,dh,smooth){
+  const xm=filterMap(sw,dw,smooth),ym=filterMap(sh,dh,smooth);
+  const mid=new Float32Array(dw*sh*4);
+  for(let y=0;y<sh;y++){
+    const ro=y*sw*4,wo=y*dw*4;
+    for(let x=0;x<dw;x++){
+      let r=0,g=0,b=0,a=0;
+      for(const t of xm[x]){const s=ro+t[0]*4,w=t[1];r+=src[s]*w;g+=src[s+1]*w;b+=src[s+2]*w;a+=src[s+3]*w;}
+      const d=wo+x*4;mid[d]=r;mid[d+1]=g;mid[d+2]=b;mid[d+3]=a;
+    }
+  }
+  const out=new Uint8ClampedArray(dw*dh*4);
+  for(let y=0;y<dh;y++){
+    const wo=y*dw*4;
+    for(let x=0;x<dw;x++){
+      let r=0,g=0,b=0,a=0;
+      for(const t of ym[y]){const s=(t[0]*dw+x)*4,w=t[1];r+=mid[s]*w;g+=mid[s+1]*w;b+=mid[s+2]*w;a+=mid[s+3]*w;}
+      const d=wo+x*4;out[d]=r;out[d+1]=g;out[d+2]=b;out[d+3]=a;
+    }
+  }
+  return out;
+}
+function canvasToBytes(cv,mime,quality){
+  return new Promise((res,rej)=>{
+    cv.toBlob(b=>{
+      if(!b){rej(new Error("could not be re-encoded"));return;}
+      b.arrayBuffer().then(ab=>res(new Uint8Array(ab)),rej);
+    },mime,quality);
+  });
+}
+async function resizeEntry(e,sizeFor,opt){
+  const img=await pixelsOf(e);
+  const {w,h}=sizeFor(img.width,img.height);
+  if(w===img.width&&h===img.height)return null;   /* nothing to do */
+  const px=resamplePixels(img.rgba,img.width,img.height,w,h,opt.smooth);
+  const from=img.width+" × "+img.height;
+  let bytes;
+  if(e.tkey==="tga")bytes=encodeTga(w,h,px,img.hasAlpha);
+  else if(e.tkey==="dds"){
+    if(w%4||h%4)throw new Error(w+" × "+h+" · DDS needs multiples of 4");
+    const levels=[{w,h,px}];
+    /* a texture that shipped with mipmaps gets a fresh chain, since dropping
+       them would make it shimmer in the distance in game */
+    if(img.mips>1){
+      let lp=px,lw=w,lh=h;
+      while(lw>1||lh>1){
+        const nw=Math.max(1,lw>>1),nh=Math.max(1,lh>>1);
+        lp=resamplePixels(lp,lw,lh,nw,nh,true);lw=nw;lh=nh;
+        levels.push({w:lw,h:lh,px:lp});
+      }
+    }
+    bytes=encodeDdsLevels(levels,img.hasAlpha||/DXT[345]/.test(img.fmtName||""));
+  }
+  else bytes=await canvasToBytes(canvasOfPixels(w,h,px),
+    e.tkey==="png"?"image/png":"image/jpeg",
+    e.tkey==="jpg"?Math.min(1,Math.max(.1,opt.quality/100)):undefined);
+  return {bytes,w,h,from};
+}
+async function applyResize(list,sizeFor,opt){
+  if(applyResize._busy)return;
+  applyResize._busy=true;
+  const prog=progressOverlay(list.length===1?"Resizing image":"Resizing "+list.length+" images");
+  const pre=snapEntries();
+  let ok=0,same=0,saved=0,last="";
+  const failed=[],newSel=new Set();
+  try{
+    for(let i=0;i<list.length;i++){
+      const e=list[i];
+      prog.set(i/list.length,(i+1)+" of "+list.length+" · "+e.name);
+      await prog.paint();
+      try{
+        const r=await resizeEntry(e,sizeFor,opt);
+        if(!r){same++;continue;}
+        saved+=e.size-r.bytes.length;
+        e.data=r.bytes;e.size=r.bytes.length;e.offset=null;
+        decodeCache.delete(e.id);
+        probeInfo(e);
+        last=r.from+" → "+r.w+" × "+r.h;
+        ok++;newSel.add(e.id);
+      }catch(err){failed.push(e.name+" ("+err.message+")");}
+    }
+    prog.set(1,"done");
+    await prog.paint();
+  }finally{
+    prog.done();
+    applyResize._busy=false;
+  }
+  if(ok){
+    pushUndoSnap(pre);
+    state.dirty=true;
+    state.sel=newSel;
+    state.anchor=newSel.size?[...newSel][0]:null;
+    refreshAll();
+    toast("Resized "+plural(ok,"image")+" · "+(ok===1?last:(saved>0?fmtBytes(saved)+" smaller":fmtBytes(-saved)+" larger"))
+      +(same?" · "+same+" already that size":"")
+      +(failed.length?" · "+failed.length+" failed":"")+" · Ctrl S to save",failed.length>0);
+  }else if(failed.length)toast("Nothing resized · "+plural(failed.length,"image")+" failed",true);
+  else if(same)toast(same===1?"Already that size":"All "+same+" already that size");
+  if(failed.length)
+    openPop('<h3>Not resized</h3><ul>'+failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")+"</ul>",menuBtn("tools"));
+}
+function showResizeDialog(list,opts){
+  list=(list||[]).filter(e=>e&&RESIZABLE.has(e.tkey)&&e.refId==null);
+  if(!list.length){toast("Nothing to resize here · TGA, DDS, PNG and JPEG can be resized",true);return;}
+  const one=list.length===1;
+  const first=dimsOfEntry(list[0])||{w:256,h:256};
+  const anyJpg=list.some(e=>e.tkey==="jpg");
+  const ov=document.createElement("div");
+  ov.id="rsdlg";
+  ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
+  const num=(id,v,w)=>'<input id="'+id+'" type="number" min="1" max="8192" value="'+v+'" style="width:'+(w||70)+'px">';
+  const row=(lb,inner)=>'<div class="rsrow"><div class="lb">'+lb+'</div><div class="in">'+inner+'</div></div>';
+  ov.innerHTML='<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);max-width:520px;width:calc(100% - 48px);padding:22px 26px">'
+    +'<h2 style="font-size:15px;margin-bottom:4px">'+(one?"Resize image":"Resize "+list.length+" images")+'</h2>'
+    +'<p style="color:var(--text-2);font-size:12px;margin-bottom:10px">'
+      +(one?esc(list[0].name)+' · '+first.w+' × '+first.h
+           :'Each one is rewritten in the format it already has, so meshes and levels keep finding it.')+'</p>'
+    +row('<label><input type="radio" name="rsmode" value="pct"'+(one?"":" checked")+'> Scale</label>',
+         num("rsPct",50,64)+'<span style="color:var(--text-2);font-size:12px">% of the original</span>')
+    +row('<label><input type="radio" name="rsmode" value="exact"'+(one?" checked":"")+'> Exact</label>',
+         num("rsW",first.w)+'<span style="color:var(--text-3)">×</span>'+num("rsH",first.h)
+         +'<label><input type="checkbox" id="rsKeep" checked> keep aspect</label>')
+    +row("Round to",'<select id="rsRound"><option value="none">anything</option>'
+         +'<option value="4" selected>a multiple of 4 (DDS-safe)</option>'
+         +'<option value="pot">a power of two</option></select>')
+    +row("Resample",'<select id="rsSmooth"><option value="1" selected>smooth</option>'
+         +'<option value="0">nearest · keeps hard pixels</option></select>')
+    +(anyJpg?row("JPEG quality",num("rsQ",92,64)+'<span style="color:var(--text-2);font-size:12px">%</span>'):"")
+    +'<div id="rsOut" style="margin-top:10px;font:400 11px var(--mono);color:var(--text-2);min-height:15px"></div>'
+    +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
+    +'<button class="btn outline" id="rsCancel">Cancel</button>'
+    +'<button class="btn primary" id="rsGo">Resize</button></div></div>';
+  document.body.appendChild(ov);
+  const $$=id=>ov.querySelector("#"+id);
+  const close=()=>{ov.remove();window.removeEventListener("keydown",onKey,true);};
+  const onKey=ev=>{
+    if(ev.key==="Escape"){ev.stopPropagation();close();}
+    else if(ev.key==="Enter"){ev.stopPropagation();go();}
+  };
+  window.addEventListener("keydown",onKey,true);
+  ov.addEventListener("mousedown",ev=>{if(ev.target===ov)close();});
+  if(opts&&opts.round)$$("rsRound").value=opts.round;
+  const mode=()=>ov.querySelector('input[name="rsmode"]:checked').value;
+  const val=(id,d)=>{const v=parseInt($$(id).value,10);return isFinite(v)&&v>0?v:d;};
+  const pot=v=>Math.max(1,Math.pow(2,Math.round(Math.log2(v))));
+  const sizeFor=(sw,sh)=>{
+    let w,h;
+    if(mode()==="pct"){
+      const p=val("rsPct",100)/100;
+      w=Math.round(sw*p);h=Math.round(sh*p);
+    }else{
+      w=val("rsW",sw);h=val("rsH",sh);
+      if($$("rsKeep").checked){                 /* largest fit inside the box */
+        const k=Math.min(w/sw,h/sh);
+        w=Math.round(sw*k);h=Math.round(sh*k);
+      }
+    }
+    const r=$$("rsRound").value;
+    if(r==="4"){w=Math.max(4,Math.round(w/4)*4);h=Math.max(4,Math.round(h/4)*4);}
+    else if(r==="pot"){w=pot(w);h=pot(h);}
+    return {w:Math.max(1,Math.min(8192,w)),h:Math.max(1,Math.min(8192,h))};
+  };
+  const preview=()=>{
+    const d=dimsOfEntry(list[0]);
+    if(!d){$$("rsOut").textContent="";return;}
+    const t=sizeFor(d.w,d.h);
+    $$("rsOut").textContent=(one?"":list[0].name+" · ")+d.w+" × "+d.h+" → "+t.w+" × "+t.h
+      +(t.w===d.w&&t.h===d.h?"  (unchanged)":"")
+      +(one?"":"   · the rest scale the same way");
+  };
+  ov.querySelectorAll("input,select").forEach(el=>{
+    el.addEventListener("input",preview);
+    el.addEventListener("change",preview);
+  });
+  /* with the aspect locked, a width implies a height and the other way round.
+     Filling the partner in beats quietly fitting inside the box the two
+     numbers describe, which reads as the typed width being ignored. */
+  const link=(from,to,scale)=>{
+    const el=$$(from);
+    el.addEventListener("input",()=>{
+      if(!$$("rsKeep").checked)return;
+      const v=parseInt(el.value,10);
+      if(!isFinite(v)||v<1)return;
+      $$(to).value=Math.max(1,Math.round(v*scale));
+      preview();
+    });
+  };
+  if(first.w&&first.h){
+    link("rsW","rsH",first.h/first.w);
+    link("rsH","rsW",first.w/first.h);
+  }
+  /* typing in a size field is a statement about which mode you meant */
+  ["rsPct","rsW","rsH"].forEach(id=>{
+    const el=$$(id);
+    if(el)el.addEventListener("focus",()=>{
+      ov.querySelector('input[name="rsmode"][value="'+(id==="rsPct"?"pct":"exact")+'"]').checked=true;
+      preview();
+    });
+  });
+  function go(){
+    const opt={smooth:$$("rsSmooth").value==="1",quality:anyJpg?val("rsQ",92):92};
+    close();
+    applyResize(list,sizeFor,opt);
+  }
+  $$("rsCancel").addEventListener("click",close);
+  $$("rsGo").addEventListener("click",go);
+  preview();
+  ($$(one?"rsW":"rsPct")||$$("rsPct")).focus();
+  ($$(one?"rsW":"rsPct")||$$("rsPct")).select();
 }
 function download(bytes,name,mime){
   const blob=bytes instanceof Blob?bytes:new Blob([bytes],{type:mime});
@@ -3346,6 +3685,8 @@ function computeChecks(){
       }catch(_){}
     }
   }
+  const modern=state.entries.filter(e=>e.tkey==="png"||e.tkey==="jpg"||e.tkey==="atx").length;
+  if(modern)w.push(["warn",plural(modern,"file")+" in PNG, JPEG or ATX format. Alpine Faction 1.4 and newer read these; stock Red Faction, Dash Faction and earlier Alpine builds do not."]);
   let total=align2048(SECTOR+64*state.entries.length);
   for(const e of state.entries)total+=align2048(e.size);
   if(total>0xFFFFFFFF)w.push(["err","This VPP exceeds 4 GB. The size field is 32-bit and the game cannot read it."]);
@@ -3379,7 +3720,7 @@ function renderTree(){
   if(!state.entries.length&&!state.refs.length)return;
   const counts=new Map();
   for(const e of activeEntries())counts.set(e.tkey,(counts.get(e.tkey)||0)+1);
-  const order=["rfl","tga","dds","pcx","vbm","v3m","v3c","rfa","mvf","vf","vfx","audio","text","ani","pof","other"];
+  const order=["rfl","tga","dds","png","jpg","pcx","vbm","v3m","v3c","rfa","mvf","vf","vfx","atx","audio","text","ani","pof","other"];
   const IC_SEL='<svg viewBox="0 0 24 24"><path d="M4 12.5l5 5 11-11"/></svg>';
   const IC_DDS='<svg viewBox="0 0 24 24"><path d="M8 3L4 7l4 4M4 7h13M16 21l4-4-4-4M20 17H7"/></svg>';
   function selectType(k){
@@ -3534,6 +3875,44 @@ function stopMedia(){
   if(animTimer){clearTimeout(animTimer);animTimer=null;}
   if(live3d){live3d.dispose();live3d=null;}
 }
+/* PNG and JPEG are decoded by the browser rather than by hand, which makes
+   them the only async formats in the app. Their pixels land in the same cache
+   as every other decode, so once they are in, everything downstream — the
+   viewer, the 3D texture lookup, the resizer — stays synchronous. */
+function decodeBitmap(e){
+  const c=decodeCache.get(e.id);
+  if(c&&c.kind==="bitmap")return Promise.resolve(c.value);
+  const blob=new Blob([entryData(e)],{type:e.tkey==="png"?"image/png":"image/jpeg"});
+  return createImageBitmap(blob).then(bm=>{
+    const w=bm.width,h=bm.height;
+    const cv=document.createElement("canvas");
+    cv.width=w;cv.height=h;
+    const ctx=cv.getContext("2d",{willReadFrequently:true});
+    ctx.drawImage(bm,0,0);
+    const px=ctx.getImageData(0,0,w,h).data;
+    if(bm.close)bm.close();
+    let hasAlpha=false;
+    if(e.tkey==="png")for(let i=3;i<px.length;i+=4){if(px[i]<255){hasAlpha=true;break;}}
+    const v={width:w,height:h,rgba:px,hasAlpha,fmtName:e.tkey==="png"?"PNG":"JPEG"};
+    decodeCache.set(e.id,{kind:"bitmap",value:v});
+    return v;
+  },()=>{throw new Error("This "+(e.tkey==="png"?"PNG":"JPEG")+" could not be decoded");});
+}
+/* pixels for any image file, whichever reader it needs */
+function pixelsOf(e){
+  if(e.tkey==="png"||e.tkey==="jpg")return decodeBitmap(e);
+  return Promise.resolve(getDecoded(e,e.tkey==="dds"?"dds":e.tkey==="pcx"?"pcx":"tga"));
+}
+/* true when the file can be drawn right now, with nothing left to fetch or decode */
+function previewReady(e){
+  if(e.refId!=null&&!e.data)return false;
+  if(e.tkey==="png"||e.tkey==="jpg"){const c=decodeCache.get(e.id);return !!(c&&c.kind==="bitmap");}
+  return true;
+}
+function ensurePreviewable(e){
+  const p=(e.refId!=null&&!e.data)?ensureData(e):Promise.resolve(e);
+  return (e.tkey==="png"||e.tkey==="jpg")?p.then(()=>decodeBitmap(e)):p;
+}
 function getDecoded(e,kind){
   const c=decodeCache.get(e.id);
   if(c&&c.kind===kind)return c.value;
@@ -3562,6 +3941,7 @@ const IC={
   extract:'<svg class="i" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>',
   expand:'<svg class="i" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>',
   png:'<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4 3 2.5L16.5 11l4 4.5"/></svg>',
+  resize:'<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="10" height="10" rx="1.5"/><path d="M9 20.5h11.5V9M20.5 9L14 15.5M20.5 9h-4M20.5 9v4"/></svg>',
   rename:'<svg class="i" viewBox="0 0 24 24"><path d="M4 20l4-1L20 7.5a1.9 1.9 0 00-2.7-2.7L5 16.8 4 20z"/></svg>',
   remove:'<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 13h8l1-13"/></svg>',
   zip:'<svg class="i" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M12 4v4m0 2v2m0 2v2"/></svg>',
@@ -3597,16 +3977,16 @@ function renderPreview(){
   const ns=sect(e.size),pad=align2048(e.size)-e.size;
   meta.textContent=m.list+" · "+fmtBytes(e.size)+" · "+plural(ns,"sector")+" · "+fmtBytes(pad)+" pad"
     +(e.refId!=null?" · linked, read-only":(e.offset!=null?" · 0x"+e.offset.toString(16).toUpperCase():" · pending save"));
-  if(e.refId!=null&&!e.data){
-    /* linked file: pull its bytes, then draw for real */
+  if(!previewReady(e)){
+    /* linked bytes still to fetch, or a PNG/JPEG still to decode */
     body.className="center";
     body.innerHTML='<div class="placeholder"><div class="t">Loading…</div><div>'+esc(e.name)+'</div></div>';
     const want=e.id;
-    ensureData(e).then(()=>{
-      if([...state.sel].length===1&&[...state.sel][0]===want)renderPreview();
-    }).catch(()=>{
-      if([...state.sel].length===1&&[...state.sel][0]===want)
-        body.innerHTML='<div class="placeholder"><div class="t" style="color:var(--warn)">Could not read this file</div></div>';
+    const mine=()=>[...state.sel].length===1&&[...state.sel][0]===want;
+    ensurePreviewable(e).then(()=>{if(mine())renderPreview();})
+    .catch(err=>{
+      if(mine())body.innerHTML='<div class="placeholder"><div class="t" style="color:var(--warn)">'
+        +esc(err.message||"Could not read this file")+'</div></div>';
     });
     return;
   }
@@ -3621,15 +4001,19 @@ function renderContent(body,e,big,acts){
   try{
     switch(TYPE_META[e.tkey].cat){
       case "image":{
-        const ex=extOf(e.name);
-        const kind=ex==="pcx"?"pcx":ex==="dds"?"dds":"tga";
-        const img=getDecoded(e,kind);
-        const meta=kind==="pcx"
+        const k=e.tkey;
+        const bitmap=k==="png"||k==="jpg";
+        const img=bitmap?decodeCache.get(e.id).value:getDecoded(e,k==="pcx"?"pcx":k==="dds"?"dds":"tga");
+        const meta=k==="pcx"
           ?('<b>'+img.width+' × '+img.height+'</b> · '+img.bpp+'-bit'+(img.planes>1?' · '+img.planes+' planes':'')+(img.rle?' · RLE':'')+' · PCX')
-          :kind==="dds"
+          :k==="dds"
           ?('<b>'+img.width+' × '+img.height+'</b> · '+img.fmtName+(img.mips>1?' · '+img.mips+' mips':'')+(img.hasAlpha?' · alpha':''))
+          :bitmap
+          ?('<b>'+img.width+' × '+img.height+'</b> · '+img.fmtName+(img.hasAlpha?' · alpha':'')+' · needs Alpine Faction 1.4')
           :('<b>'+img.width+' × '+img.height+'</b> · '+img.bpp+'-bit'+(img.imgType>=9?' · RLE':'')+(img.hasAlpha?' · alpha':''));
         renderImage(body,e,img,meta,big);
+        if(RESIZABLE.has(k)&&e.refId==null)
+          addAct(IC.resize,"Resize this image",()=>showResizeDialog([e]));
         addAct(IC.png,"Export as PNG",()=>exportCanvasPng(body.querySelector("canvas"),baseName(e.name)+".png"));
         addExpand();addExtract();
         return;
@@ -3937,8 +4321,10 @@ function loadThree(){
 const stemOf=n=>{if(!n)return "";const f=n.replace(/\\/g,"/").split("/").pop();const d=f.lastIndexOf(".");return (d>0?f.slice(0,d):f).toLowerCase();};
 function textureCanvasFor(entry){
   try{
-    const k=entry.tkey==="vbm"?"vbm":entry.tkey==="dds"?"dds":"tga";
-    const dec=getDecoded(entry,k);
+    const k=entry.tkey==="vbm"?"vbm":entry.tkey==="dds"?"dds":entry.tkey==="pcx"?"pcx":
+            (entry.tkey==="png"||entry.tkey==="jpg")?"bitmap":"tga";
+    const dec=k==="bitmap"?(decodeCache.get(entry.id)||{}).value:getDecoded(entry,k);
+    if(!dec)return null;
     const w=dec.width,h=dec.height;
     const cv=document.createElement("canvas");
     cv.width=w;cv.height=h;
@@ -4100,7 +4486,7 @@ function render3d(body,e,big,r3opts){
   holder.appendChild(hint);
   const texEntryFor=tn=>{
     const st=stemOf(tn);
-    return findAsset(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm"||x.tkey==="pcx")&&stemOf(x.name)===st)||null;
+    return findAsset(x=>isTexKey(x.tkey)&&stemOf(x.name)===st)||null;
   };
   wrapOuter.appendChild(bar);
   if(model.textureNames.length){
@@ -4162,8 +4548,8 @@ function render3d(body,e,big,r3opts){
      texture lookup inside the builder is synchronous */
   const prefetch=(model.textureNames||[]).map(tn=>{
     const st=stemOf(tn);
-    const hit=findAsset(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm"||x.tkey==="pcx")&&stemOf(x.name)===st);
-    return (hit&&hit.refId!=null&&!hit.data)?ensureData(hit).catch(()=>null):null;
+    const hit=findAsset(x=>isTexKey(x.tkey)&&stemOf(x.name)===st);
+    return (hit&&!previewReady(hit))?ensurePreviewable(hit).catch(()=>null):null;
   }).filter(Boolean);
   Promise.all([loadThree(),...prefetch]).then(()=>{
     loading.remove();
@@ -4217,7 +4603,7 @@ function makeViewer3d(holder,model,ui){
     let entry=findAsset(x=>x.name.toLowerCase()===st+".dds")
            ||findAsset(x=>x.name.toLowerCase()===st+".tga")
            ||findAsset(x=>x.name.toLowerCase()===st+".vbm")
-           ||findAsset(x=>(x.tkey==="tga"||x.tkey==="dds"||x.tkey==="vbm")&&stemOf(x.name)===st);
+           ||findAsset(x=>isTexKey(x.tkey)&&stemOf(x.name)===st);
     if(entry&&!entry.data&&entry.refId!=null)entry=null; /* not fetched yet */
     let tex=null;
     if(entry){
@@ -4446,6 +4832,11 @@ function makeViewer3d(holder,model,ui){
 
 /* ---- lightbox ---- */
 function openLightbox(e){
+  if(!previewReady(e)){
+    ensurePreviewable(e).then(()=>openLightbox(e))
+      .catch(err=>toast(err.message||("Could not read "+e.name),true));
+    return;
+  }
   stopMedia();
   const lb=$("lightbox");
   $("lbName").textContent=e.name;
@@ -4558,6 +4949,9 @@ function contextItems(){
     ...texActions,
     ...((()=>{const t=[...state.sel].map(byId).filter(x=>x&&x.tkey==="tga");
       return t.length?[{label:t.length===1?"Replace with DDS":"Replace "+t.length+" TGA with DDS",fn:()=>tgaEntriesToDds(t)}]:[];})()),
+    ...((()=>{const im=[...state.sel].map(byId).filter(x=>x&&RESIZABLE.has(x.tkey));
+      return im.length?[{label:im.length===1?"Resize image…":"Resize "+im.length+" images…",
+        icon:IC.resize,fn:()=>showResizeDialog(im)}]:[];})()),
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
     {label:one?"Duplicate":"Duplicate "+n+" files",k:"Ctrl D",fn:duplicateSelected},
     {label:one?"Copy name":"Copy "+n+" names",fn:copySelectedNames},
@@ -4821,6 +5215,15 @@ function menuItems(which){
       {label:"Write view order to VPP",icon:IC.order,off:!sorted,fn:applyViewOrder},
       "-",
       {label:"Replace all TGA with DDS",off:!state.entries.some(e2=>e2.tkey==="tga"),fn:()=>tgaEntriesToDds(state.entries.filter(e2=>e2.tkey==="tga"))},
+      ...((()=>{
+        /* the selection when it holds images, otherwise every image in the VPP */
+        const sel=[...state.sel].map(byId).filter(x=>x&&RESIZABLE.has(x.tkey));
+        const all=state.entries.filter(x=>RESIZABLE.has(x.tkey));
+        const pick=sel.length?sel:all;
+        return [{label:sel.length?"Resize "+plural(sel.length,"selected image")+"…"
+                                 :"Resize all "+plural(all.length,"image")+"…",
+                 icon:IC.resize,off:!pick.length,fn:()=>showResizeDialog(pick)}];
+      })()),
       {label:"Export folders…",off:!BRIDGE,fn:showExportFolders},
       "-",
       {label:"Link VPPs for previews…",off:!BRIDGE,fn:linkVppDialog},

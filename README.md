@@ -10,8 +10,12 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
 
 - Byte-exact VPP v1 reader and writer, verified against the retail game
   files.
-- Viewers for TGA, DDS, PCX and VBM textures, V3M static meshes, VF
-  fonts, RFL levels, tables and audio.
+- Viewers for TGA, DDS, PNG, JPEG, PCX and VBM textures, V3M static
+  meshes, VF fonts, RFL levels, tables and audio.
+- Reads the formats Alpine Faction 1.4 adds: PNG and JPEG textures preview
+  and resolve on meshes exactly like TGA, and ATX files are named and read
+  as text. A VPP holding any of them says so in VPP checks, since older
+  builds of the game cannot load them.
 - V3C characters load as real skeletons and play RFA animations in the
   3D viewer, with Play/Pause, a scrubber and a time readout. Select an
   RFA on its own and it previews on a matching character from the VPP.
@@ -29,6 +33,11 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   full keyboard navigation.
 - Replace all TGA with DDS in one click: automatic DXT1/DXT5 by alpha,
   with a guard against dimensions the game's D3D11 renderer rejects.
+- Resize one image or a whole selection, by percentage or to an exact size,
+  rounding to a multiple of 4 or a power of two. Each file is rewritten in
+  the format it already had, so meshes and levels keep finding it, DDS
+  mipmap chains are rebuilt, and the colour under transparent pixels
+  survives the trip.
 - Extract opens the native Windows folder picker and unpacks straight
   into the folder you choose.
 

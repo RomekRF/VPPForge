@@ -33,7 +33,10 @@ USING IT
   - Toolbar: New, Open, Save VPP, Add, Remove, Extract. Extract asks
     for a destination folder and unpacks the selected files there.
   - Select a file to preview it: textures, meshes, animations,
-    levels, fonts, tables and audio.
+    levels, fonts, tables and audio. Alongside the stock formats it
+    reads the PNG and JPEG textures Alpine Faction 1.4 introduces.
+  - Right-click an image for Resize: percentage or exact size, for one
+    file or a whole selection, written back in the same format.
   - Arrow keys move through the list, Space plays and pauses an
     animation or a sound, F2 renames, Del removes, Alt Up/Down
     reorders, Ctrl S saves, Ctrl E extracts, Ctrl F filters.
