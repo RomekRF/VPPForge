@@ -2881,6 +2881,9 @@ function unlinkRef(i){
   toast("Unlinked "+r.name);
   refreshAll();renderPreview();
 }
+/* Off unless asked for: indexing every game VPP is real work, and most of
+   what people open needs nothing from it. Tools turns it on. */
+const linkGameOnStart=()=>(APP_SETTINGS.linkGame??0)===1;
 function linkGameAssets(manual){
   if(!BRIDGE){if(manual)toast("Linking needs the desktop app",true);return;}
   const q=APP_SETTINGS.gameDir?"?dir="+encodeURIComponent(APP_SETTINGS.gameDir):"";
@@ -4530,7 +4533,9 @@ function render3d(body,e,big,r3opts){
       find.textContent="Find missing textures…";
       find.title="Link a VPP that holds them, for previews only";
       find.addEventListener("click",()=>{
-        if((APP_SETTINGS.linkGame??1)===1&&!state.refs.length)linkGameAssets(true);
+        /* nothing linked yet: the game holds the stock textures, and it says
+           so and stays put when it is not installed */
+        if(!state.refs.length)linkGameAssets(true);
         else linkVppDialog();
       });
       conn.appendChild(find);
@@ -5228,8 +5233,8 @@ function menuItems(which){
       "-",
       {label:"Link VPPs for previews…",off:!BRIDGE,fn:linkVppDialog},
       {label:"Link Red Faction assets",off:!BRIDGE,fn:()=>linkGameAssets(true)},
-      {label:"Link the game automatically · "+((APP_SETTINGS.linkGame??1)===1?"on":"off"),off:!BRIDGE,fn:()=>{
-        APP_SETTINGS.linkGame=((APP_SETTINGS.linkGame??1)===1)?0:1;
+      {label:"Link the game automatically · "+(linkGameOnStart()?"on":"off"),off:!BRIDGE,fn:()=>{
+        APP_SETTINGS.linkGame=linkGameOnStart()?0:1;
         saveSettings();
         toast((APP_SETTINGS.linkGame===1)
           ?"Red Faction assets will link on startup"
@@ -5778,12 +5783,12 @@ if(BRIDGE){
   if(BRIDGE.installed)showWelcome(true);
   /* quiet check a few seconds in, so it never delays opening a file */
   setTimeout(()=>checkForUpdates(false),4000);
-  /* Link the game so stock textures resolve without setup, but not when we
-     were opened on a single file: indexing the game to look at one mesh is
-     work for nothing, and it can be linked from the viewer on demand. */
+  /* Only when it has been asked for, and never for a single opened file:
+     both are cases where indexing the game is work for nothing. Either way
+     it can still be linked from the viewer or from Tools on demand. */
   opened.then(()=>{
     if(state.loose)return;
-    if((APP_SETTINGS.linkGame??1)===1)setTimeout(()=>linkGameAssets(false),1000);
+    if(linkGameOnStart())setTimeout(()=>linkGameAssets(false),1000);
   });
 }
 </script>

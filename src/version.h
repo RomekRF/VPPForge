@@ -5,7 +5,7 @@
 #ifndef VPP_VERSION_H
 #define VPP_VERSION_H
 
-#define VPP_VERSION       "1.21.8"
-#define VPP_VERSION_COMMA 1,21,8,0
+#define VPP_VERSION       "1.21.9"
+#define VPP_VERSION_COMMA 1,21,9,0
 
 #endif
