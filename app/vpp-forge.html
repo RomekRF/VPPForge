@@ -5123,12 +5123,22 @@ function checkForUpdates(manual){
   if(manual)toast("Checking for updates…");
   bridgeJson("/update/check").then(j=>{
     updateInfo=j;
-    if(manual)showUpdate(j,true);
-    else if(j&&j.ok&&j.available){
+    if(manual){showUpdate(j,true);return;}
+    if(!(j&&j.ok&&j.available))return;
+    const hb=menuBtn("help");
+    if(hb)hb.classList.add("has-update");   /* stays until the update is taken */
+    /* A toast gone in 2.4 seconds and a 5px dot are easy to miss entirely, and
+       a release nobody hears about is a release nobody installs. Say it once,
+       properly, the first time a version turns up, and never again for that
+       version however often the app is opened. Not over a single opened
+       asset: that window is a quick look, not a session. */
+    if(state.loose||APP_SETTINGS.updateSeen===j.latest){
       toast("Version "+j.latest+" is available · Help › Check for updates");
-      const hb=menuBtn("help");
-      if(hb)hb.classList.add("has-update");
+      return;
     }
+    APP_SETTINGS.updateSeen=j.latest;
+    saveSettings();
+    showUpdate(j,false);
   }).catch(()=>{
     if(manual)showUpdate({ok:0},true);
   });
