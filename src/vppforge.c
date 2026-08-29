@@ -32,6 +32,7 @@
 #include <shobjidl.h>
 #include <objbase.h>
 #include <wininet.h>
+#include <io.h>       /* _commit, _fileno */
 typedef SOCKET sock_t;
 #define CLOSESOCK closesocket
 #else
@@ -209,6 +210,16 @@ static unsigned long long file_size64(FILE *f) {
     end = tell64(f);
     seek64(f, here);
     return end;
+}
+
+/* fflush only reaches the OS. Push it to the disk as well before an atomic
+   replace, so a power cut cannot leave the new name pointing at nothing. */
+static void plat_sync(FILE *f) {
+#ifdef _WIN32
+    _commit(_fileno(f));
+#else
+    fsync(fileno(f));
+#endif
 }
 
 /* forward decl: plat_fopen is defined in the platform layer below */
@@ -1244,17 +1255,17 @@ static void resp_err(sock_t s, const char *status) {
 
 static void serve_data(sock_t s, int id) {
     FILE *f = plat_fopen(g_paths[id], "rb");
-    long sz;
+    unsigned long long sz;
     char hdr[256];
     char buf[65536];
     size_t n;
     if (!f) { resp_err(s, "404 Not Found"); return; }
-    fseek(f, 0, SEEK_END);
-    sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    /* a VPP may run to 4 GB, past what a 32-bit ftell can report */
+    sz = file_size64(f);
+    seek64(f, 0);
     snprintf(hdr, sizeof hdr,
         "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
-        "Content-Length: %ld\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", sz);
+        "Content-Length: %llu\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", sz);
     if (send_all(s, hdr, strlen(hdr))) { fclose(f); return; }
     while ((n = fread(buf, 1, sizeof buf, f)) > 0)
         if (send_all(s, buf, n)) break;
@@ -1293,6 +1304,7 @@ static void handle_save(sock_t s, int id, const char *target,
 #endif
     }
     if (fflush(f) != 0) { fclose(f); remove(tmp); resp_err(s, "500 Write Failed"); return; }
+    plat_sync(f);
     fclose(f);
     /* bak=1: keep a one-time backup of the original before the first overwrite */
     if (qget(target, "bak", bakflag, sizeof bakflag) && !strcmp(bakflag, "1")) {
@@ -1351,9 +1363,30 @@ static void handle_settings_set(sock_t s, unsigned long long clen,
 #endif
     }
     if (fflush(f) != 0) { fclose(f); remove(tmp); resp_err(s, "500 Write Failed"); return; }
+    plat_sync(f);
     fclose(f);
     if (plat_replace(tmp, g_settings_path) != 0) { remove(tmp); resp_err(s, "500 Replace Failed"); return; }
     resp_json(s, "{\"ok\":1}");
+}
+
+/* CON, NUL, COM1 and friends name devices on Windows, not files: opening one
+   succeeds and writes nowhere, so an entry called NUL would extract to
+   silence. A trailing dot or space is quietly dropped by the filesystem. */
+static int reserved_name(const char *n) {
+#ifdef _WIN32
+    static const char *dev[] = { "CON", "PRN", "AUX", "NUL",
+        "COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9",
+        "LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9" };
+    size_t i, stem = strcspn(n, ".");
+    size_t len = strlen(n);
+    if (!len) return 1;
+    if (n[len - 1] == ' ' || n[len - 1] == '.') return 1;
+    for (i = 0; i < sizeof dev / sizeof *dev; i++)
+        if (strlen(dev[i]) == stem && !strncasecmp_portable(n, dev[i], stem)) return 1;
+#else
+    (void)n;
+#endif
+    return 0;
 }
 
 /* stream a POST body (extracted file bytes) into dir\name */
@@ -1369,7 +1402,8 @@ static void handle_extract_file(sock_t s, const char *target,
         resp_err(s, "400 Bad Request");
         return;
     }
-    if (strstr(name, "..") || strchr(name, '/') || strchr(name, '\\') || strchr(name, ':')) {
+    if (strstr(name, "..") || strchr(name, '/') || strchr(name, '\\') || strchr(name, ':') ||
+        reserved_name(name)) {
         resp_err(s, "400 Bad Name");
         return;
     }
@@ -1401,8 +1435,19 @@ static void handle_extract_file(sock_t s, const char *target,
 #endif
     }
     if (fflush(f) != 0) { fclose(f); remove(full); resp_err(s, "500 Write Failed"); return; }
+    plat_sync(f);
     fclose(f);
     resp_json(s, "{\"ok\":1}");
+}
+
+/* Match the path exactly, ignoring the query string. Prefix matching put
+   "/dialog/open" in front of "/dialog/openmulti", which quietly took its
+   requests, and any future route that starts with an existing one would do
+   the same. */
+static int route_is(const char *target, const char *path) {
+    size_t n = strlen(path);
+    if (strncmp(target, path, n) != 0) return 0;
+    return target[n] == 0 || target[n] == '?';
 }
 
 static int parse_id(const char *target) {
@@ -1446,13 +1491,13 @@ static void handle_conn(sock_t s) {
         resp(s, "200 OK", "text/html; charset=utf-8", g_page, g_page_len);
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/favicon.ico", 12)) {
+    if (!strcmp(method, "GET") && route_is(target, "/favicon.ico")) {
         resp_err(s, "204 No Content");
         return;
     }
     if (!token_ok(target)) { resp_err(s, "403 Forbidden"); return; }
 
-    if (!strcmp(method, "GET") && !strncmp(target, "/open", 5)) {
+    if (!strcmp(method, "GET") && route_is(target, "/open")) {
         /* only the file we were launched with; linked VPPs also register
            paths, so index 0 is not necessarily it */
         if (g_startup_path >= 0 && g_startup_path < g_npaths) {
@@ -1463,20 +1508,20 @@ static void handle_conn(sock_t s) {
         } else resp_json(s, "{}");
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/data", 5)) {
+    if (!strcmp(method, "GET") && route_is(target, "/data")) {
         int id = parse_id(target);
         if (id < 0) { resp_err(s, "404 Not Found"); return; }
         serve_data(s, id);
         return;
     }
-    if (!strcmp(method, "POST") && !strncmp(target, "/save", 5)) {
+    if (!strcmp(method, "POST") && route_is(target, "/save")) {
         int id = parse_id(target);
         size_t leftn = got - (size_t)(body - hdr);
         if (id < 0) { resp_err(s, "404 Not Found"); return; }
         handle_save(s, id, target, clen, body, leftn);
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/dialog/open", 12)) {
+    if (!strcmp(method, "GET") && route_is(target, "/dialog/open")) {
         char path[4096];
         if (!plat_dialog_open(path, sizeof path)) { resp_json(s, "{\"cancel\":1}"); return; }
         {   int id = register_path(path);
@@ -1488,7 +1533,7 @@ static void handle_conn(sock_t s) {
             resp_json(s, out); }
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/recents", 8)) {
+    if (!strcmp(method, "GET") && route_is(target, "/recents")) {
         char list[RECENT_MAX][2048];
         int n = recents_load(list), i;
         char out[8192];
@@ -1503,7 +1548,7 @@ static void handle_conn(sock_t s) {
         resp_json(s, out);
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/recent/open", 12)) {
+    if (!strcmp(method, "GET") && route_is(target, "/recent/open")) {
         char v[16], list[RECENT_MAX][2048];
         int n, i;
         if (!qget(target, "i", v, sizeof v)) { resp_err(s, "404 Not Found"); return; }
@@ -1522,20 +1567,20 @@ static void handle_conn(sock_t s) {
             resp_json(s, out); }
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/reveal", 7)) {
+    if (!strcmp(method, "GET") && route_is(target, "/reveal")) {
         int id = parse_id(target);
         if (id < 0) { resp_err(s, "404 Not Found"); return; }
         plat_reveal(g_paths[id]);
         resp_json(s, "{\"ok\":1}");
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/vpp/dir", 8)) {
+    if (!strcmp(method, "GET") && route_is(target, "/vpp/dir")) {
         int id = parse_id(target);
         if (id < 0) { resp_err(s, "404 Not Found"); return; }
         handle_vpp_dir(s, id);
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/vpp/slice", 10)) {
+    if (!strcmp(method, "GET") && route_is(target, "/vpp/slice")) {
         int id = parse_id(target);
         char vo[32], vl[32];
         if (id < 0 || !qget(target, "off", vo, sizeof vo) || !qget(target, "len", vl, sizeof vl)) {
@@ -1544,7 +1589,7 @@ static void handle_conn(sock_t s) {
         handle_vpp_slice(s, id, strtoul(vo, NULL, 10), strtoul(vl, NULL, 10));
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/game/vpps", 10)) {
+    if (!strcmp(method, "GET") && route_is(target, "/game/vpps")) {
 #ifdef _WIN32
         handle_game_vpps(s, target);
 #else
@@ -1552,7 +1597,7 @@ static void handle_conn(sock_t s) {
 #endif
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/update/check", 13)) {
+    if (!strcmp(method, "GET") && route_is(target, "/update/check")) {
 #ifdef _WIN32
         int r = update_check();
         char esc[128], out[1400];
@@ -1566,7 +1611,7 @@ static void handle_conn(sock_t s) {
 #endif
         return;
     }
-    if (!strcmp(method, "POST") && !strncmp(target, "/update/apply", 13)) {
+    if (!strcmp(method, "POST") && route_is(target, "/update/apply")) {
 #ifdef _WIN32
         if (update_stage() == 0) resp_json(s, "{\"ok\":1}");
         else { resp_json(s, "{\"ok\":0}"); return; }
@@ -1575,7 +1620,7 @@ static void handle_conn(sock_t s) {
 #endif
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/dialog/openmulti", 17)) {
+    if (!strcmp(method, "GET") && route_is(target, "/dialog/openmulti")) {
 #ifdef _WIN32
         handle_dialog_open_multi(s);
 #else
@@ -1583,7 +1628,7 @@ static void handle_conn(sock_t s) {
 #endif
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/dialog/folder", 14)) {
+    if (!strcmp(method, "GET") && route_is(target, "/dialog/folder")) {
         char dir[4096];
         if (!plat_dialog_folder(dir, sizeof dir)) { resp_json(s, "{\"cancel\":1}"); return; }
         {   char esc[8300], out[8400];
@@ -1592,26 +1637,26 @@ static void handle_conn(sock_t s) {
             resp_json(s, out); }
         return;
     }
-    if (!strcmp(method, "POST") && !strncmp(target, "/extractfile", 12)) {
+    if (!strcmp(method, "POST") && route_is(target, "/extractfile")) {
         size_t leftn = got - (size_t)(body - hdr);
         handle_extract_file(s, target, clen, body, leftn);
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/settings", 9)) {
+    if (!strcmp(method, "GET") && route_is(target, "/settings")) {
         handle_settings_get(s);
         return;
     }
-    if (!strcmp(method, "POST") && !strncmp(target, "/settings", 9)) {
+    if (!strcmp(method, "POST") && route_is(target, "/settings")) {
         size_t leftn = got - (size_t)(body - hdr);
         handle_settings_set(s, clen, body, leftn);
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/quit", 5)) {
+    if (!strcmp(method, "GET") && route_is(target, "/quit")) {
         resp_json(s, "{\"ok\":1}");
         g_quit = 1;
         return;
     }
-    if (!strcmp(method, "GET") && !strncmp(target, "/dialog/saveas", 14)) {
+    if (!strcmp(method, "GET") && route_is(target, "/dialog/saveas")) {
         char suggest[512] = "new.vpp";
         char path[4096];
         qget(target, "name", suggest, sizeof suggest);
@@ -1697,6 +1742,16 @@ static void serve_loop(sock_t ls) {
     for (;;) {
         sock_t c = accept(ls, NULL, NULL);
         if (c == INVALID_SOCKET) continue;
+        /* Connections are served one at a time, so a socket that opens and
+           then says nothing - a browser preconnect, say - would otherwise
+           block every request behind it for as long as it stayed open. */
+#ifdef _WIN32
+        {   DWORD ms = 20000;
+            setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, (const char *)&ms, sizeof ms); }
+#else
+        {   struct timeval tv; tv.tv_sec = 20; tv.tv_usec = 0;
+            setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv); }
+#endif
         handle_conn(c);
         CLOSESOCK(c);
 #ifdef _WIN32

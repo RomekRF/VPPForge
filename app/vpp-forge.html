@@ -3923,7 +3923,10 @@ function stopMedia(){
    viewer, the 3D texture lookup, the resizer — stays synchronous. */
 function decodeBitmap(e){
   const c=decodeCache.get(e.id);
-  if(c&&c.kind==="bitmap")return Promise.resolve(c.value);
+  if(c&&c.kind==="bitmap"){
+    decodeCache.delete(e.id);decodeCache.set(e.id,c);  /* keep it recent */
+    return Promise.resolve(c.value);
+  }
   const blob=new Blob([entryData(e)],{type:e.tkey==="png"?"image/png":"image/jpeg"});
   return createImageBitmap(blob).then(bm=>{
     const w=bm.width,h=bm.height;
@@ -3955,9 +3958,34 @@ function ensurePreviewable(e){
   const p=(e.refId!=null&&!e.data)?ensureData(e):Promise.resolve(e);
   return (e.tkey==="png"||e.tkey==="jpg")?p.then(()=>decodeBitmap(e)):p;
 }
+/* Decoded pixels add up fast: arrowing through a thousand 256×256 textures
+   is a quarter of a gigabyte held for nothing. Charge each decode its size
+   and drop the oldest once the total gets silly. Trimming happens when a
+   preview starts, never mid-render, so a 3D build that has just fetched its
+   textures still finds them in the cache. */
+const DECODE_BUDGET=192*1024*1024;
+function decodeBytes(v){
+  if(!v)return 0;
+  if(v.rgba)return v.rgba.length;
+  if(v.frames)return v.frames.reduce((n,f)=>n+(f.length||0),0);
+  return 65536;                       /* meshes and fonts: a nominal charge */
+}
+function trimDecodeCache(){
+  let total=0;
+  for(const c of decodeCache.values())total+=decodeBytes(c.value);
+  if(total<=DECODE_BUDGET)return;
+  for(const [k,c] of decodeCache){    /* a Map walks oldest first */
+    if(total<=DECODE_BUDGET||decodeCache.size<=16)break;
+    decodeCache.delete(k);
+    total-=decodeBytes(c.value);
+  }
+}
 function getDecoded(e,kind){
   const c=decodeCache.get(e.id);
-  if(c&&c.kind===kind)return c.value;
+  if(c&&c.kind===kind){
+    decodeCache.delete(e.id);decodeCache.set(e.id,c);  /* keep it recent */
+    return c.value;
+  }
   let v;
   const d=entryData(e);
   if(kind==="tga")v=decodeTga(d);
@@ -3997,6 +4025,7 @@ const IC={
 function renderPreview(){
   stopMedia();
   if(state.name===null)return;
+  trimDecodeCache();
   const body=$("prevBody"),nameEl=$("prevName"),meta=$("prevMeta"),acts=$("prevActs");
   body.scrollTop=0;
   acts.innerHTML="";
