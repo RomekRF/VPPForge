@@ -948,7 +948,7 @@ function decodeDds(d){
       if(rgba[o+3]<255)hasAlpha=true;
     }
   }
-  return {width,height,rgba,fmtName,mips,hasAlpha};
+  return {width,height,rgba,fmtName,codec,mips,hasAlpha};
 }
 
 /* ---- VF · Volition Font (spec: rf-reversed/vf_format.h) ---- */
@@ -3305,6 +3305,39 @@ function encodeDdsLevels(levels,wantDXT5){
   return out;
 }
 function encodeDds(w,h,px,wantDXT5){return encodeDdsLevels([{w,h,px}],wantDXT5);}
+/* Uncompressed 32-bit DDS, for resizing a texture that was never block
+   compressed: running it through DXT would add artefacts it never had. */
+function encodeDdsRaw(levels){
+  let total=0;
+  for(const l of levels)total+=l.w*l.h*4;
+  const out=new Uint8Array(128+total);
+  const hv=new DataView(out.buffer);
+  const many=levels.length>1;
+  hv.setUint32(0,0x20534444,true);
+  hv.setUint32(4,124,true);
+  hv.setUint32(8,0x1|0x2|0x4|0x8|0x1000|(many?0x20000:0),true);
+  hv.setUint32(12,levels[0].h,true);
+  hv.setUint32(16,levels[0].w,true);
+  hv.setUint32(20,levels[0].w*4,true);      /* pitch, not linear size */
+  if(many)hv.setUint32(28,levels.length,true);
+  hv.setUint32(76,32,true);
+  hv.setUint32(80,0x1|0x40,true);            /* ALPHAPIXELS | RGB */
+  hv.setUint32(88,32,true);
+  hv.setUint32(92,0x00FF0000,true);          /* B8G8R8A8, what D3D9 calls A8R8G8B8 */
+  hv.setUint32(96,0x0000FF00,true);
+  hv.setUint32(100,0x000000FF,true);
+  hv.setUint32(104,0xFF000000,true);
+  hv.setUint32(108,0x1000|(many?0x8|0x400000:0),true);
+  let o=128;
+  for(const l of levels){
+    const px=l.px,n=l.w*l.h;
+    for(let i=0;i<n;i++){
+      const p=i*4;
+      out[o++]=px[p+2];out[o++]=px[p+1];out[o++]=px[p];out[o++]=px[p+3];
+    }
+  }
+  return out;
+}
 /* the modal progress box the batch tools put up while they work */
 function progressOverlay(title){
   const ov=document.createElement("div");
@@ -3484,9 +3517,12 @@ async function resizeEntry(e,sizeFor,opt){
   const px=resamplePixels(img.rgba,img.width,img.height,w,h,opt.smooth);
   const from=img.width+" × "+img.height;
   let bytes;
-  if(e.tkey==="tga")bytes=encodeTga(w,h,px,img.hasAlpha);
+  /* 32-bit stays 32-bit even when every pixel is opaque: the channel being
+     there is part of the format, and dropping it is not ours to decide */
+  if(e.tkey==="tga")bytes=encodeTga(w,h,px,img.hasAlpha||img.bpp===32);
   else if(e.tkey==="dds"){
-    if(w%4||h%4)throw new Error(w+" × "+h+" · DDS needs multiples of 4");
+    const raw=img.codec==="rgba8"||img.codec==="bgra8"||img.codec==="masked"||img.codec==="lum";
+    if(!raw&&(w%4||h%4))throw new Error(w+" × "+h+" · DDS needs multiples of 4");
     const levels=[{w,h,px}];
     /* a texture that shipped with mipmaps gets a fresh chain, since dropping
        them would make it shimmer in the distance in game */
@@ -3498,7 +3534,10 @@ async function resizeEntry(e,sizeFor,opt){
         levels.push({w:lw,h:lh,px:lp});
       }
     }
-    bytes=encodeDdsLevels(levels,img.hasAlpha||/DXT[345]/.test(img.fmtName||""));
+    /* DXT1 only where the source was DXT1 and nothing is see-through:
+       BC2/BC3 carry an alpha channel whether or not it is used */
+    bytes=raw?encodeDdsRaw(levels)
+             :encodeDdsLevels(levels,img.hasAlpha||img.codec==="bc2"||img.codec==="bc3");
   }
   else bytes=await canvasToBytes(canvasOfPixels(w,h,px),
     e.tkey==="png"?"image/png":"image/jpeg",

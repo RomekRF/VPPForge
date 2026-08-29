@@ -118,6 +118,19 @@ static char *xstrdup(const char *s) {
 }
 
 static int register_path(const char *utf8) {
+    int i;
+    /* A file already registered keeps the id it had. Handing out a fresh one
+       would make the app link a second copy of a VPP it has already linked,
+       and spend a slot doing it, every time the game folder is listed. */
+    for (i = 0; i < g_npaths; i++) {
+        int same;
+#ifdef _WIN32
+        same = !_stricmp(g_paths[i], utf8);
+#else
+        same = !strcmp(g_paths[i], utf8);
+#endif
+        if (same) return i;
+    }
     if (g_npaths >= MAX_PATHS) return -1;
     g_paths[g_npaths] = xstrdup(utf8);
     return g_paths[g_npaths] ? g_npaths++ : -1;
@@ -168,6 +181,34 @@ static int qget(const char *target, const char *key, char *out, size_t cap) {
 static int token_ok(const char *target) {
     char t[64];
     return qget(target, "t", t, sizeof t) && !strcmp(t, g_token);
+}
+
+/* VPPs are allowed up to 4 GB, past what fseek's long can address on
+   Windows, so every offset in a file goes through these two. */
+static int seek64(FILE *f, unsigned long long off) {
+#ifdef _WIN32
+    return _fseeki64(f, (__int64)off, SEEK_SET);
+#else                                  /* long is already 64-bit where it matters */
+    return fseek(f, (long)off, SEEK_SET);
+#endif
+}
+static unsigned long long tell64(FILE *f) {
+#ifdef _WIN32
+    return (unsigned long long)_ftelli64(f);
+#else
+    return (unsigned long long)ftell(f);
+#endif
+}
+static unsigned long long file_size64(FILE *f) {
+    unsigned long long here = tell64(f), end;
+#ifdef _WIN32
+    _fseeki64(f, 0, SEEK_END);
+#else
+    fseek(f, 0, SEEK_END);
+#endif
+    end = tell64(f);
+    seek64(f, here);
+    return end;
 }
 
 /* forward decl: plat_fopen is defined in the platform layer below */
@@ -423,12 +464,15 @@ static void handle_vpp_dir(sock_t s, int id) {
     }
     num = (unsigned long)(head[8] | (head[9] << 8) | (head[10] << 16) | ((unsigned long)head[11] << 24));
     if (num > 200000) { fclose(f); resp_err(s, "400 Bad VPP"); return; }
-    cap = 64 + num * 96;
+    /* worst case per record: a 60-char name escaped, two 10-digit numbers
+       and a bone count, near 200 bytes. Budgeting less truncates the listing
+       silently, and a linked VPP then looks like it is missing files. */
+    cap = 64 + num * 200;
     out = (char *)malloc(cap);
     if (!out) { fclose(f); resp_err(s, "500 Out Of Memory"); return; }
     len += (size_t)snprintf(out + len, cap - len, "{\"list\":[");
     data_off = vpp_align((unsigned long)(VPP_SECTOR + 64 * num));
-    if (fseek(f, VPP_SECTOR, SEEK_SET) != 0) { free(out); fclose(f); resp_err(s, "400 Bad VPP"); return; }
+    if (seek64(f, VPP_SECTOR) != 0) { free(out); fclose(f); resp_err(s, "400 Bad VPP"); return; }
     for (i = 0; i < num; i++) {
         unsigned char rec[64];
         char name[61], esc[130];
@@ -444,12 +488,12 @@ static void handle_vpp_dir(sock_t s, int id) {
         {   size_t nl = strlen(name);
             if (nl > 4 && (!strncasecmp_portable(name + nl - 4, ".rfa", 4) ||
                            !strncasecmp_portable(name + nl - 4, ".mvf", 4)) && size >= 28) {
-                long back = ftell(f);
+                unsigned long long back = tell64(f);
                 unsigned char h[28];
-                if (fseek(f, (long)data_off, SEEK_SET) == 0 && fread(h, 1, 28, f) == 28 &&
+                if (seek64(f, data_off) == 0 && fread(h, 1, 28, f) == 28 &&
                     h[0] == 'V' && h[1] == 'M' && h[2] == 'V' && h[3] == 'F')
                     bones = (int)(h[24] | (h[25] << 8) | (h[26] << 16) | ((unsigned long)h[27] << 24));
-                fseek(f, back, SEEK_SET);
+                seek64(f, back);
             }
         }
         json_escape(esc, sizeof esc, name);
@@ -475,7 +519,14 @@ static void handle_vpp_slice(sock_t s, int id, unsigned long off, unsigned long 
     if (len > 256u * 1024u * 1024u) { resp_err(s, "400 Too Large"); return; }
     f = plat_fopen(g_paths[id], "rb");
     if (!f) { resp_err(s, "404 Not Found"); return; }
-    if (fseek(f, (long)off, SEEK_SET) != 0) { fclose(f); resp_err(s, "416 Bad Range"); return; }
+    /* Say up front that the range cannot be answered. Sending the header and
+       running out of file leaves the browser with a body shorter than the
+       Content-Length it was promised, which surfaces as a bare network
+       error - the case when a linked VPP is rebuilt smaller underneath us. */
+    if ((unsigned long long)off + len > file_size64(f)) {
+        fclose(f); resp_err(s, "416 Bad Range"); return;
+    }
+    if (seek64(f, off) != 0) { fclose(f); resp_err(s, "416 Bad Range"); return; }
     snprintf(hdr, sizeof hdr,
         "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
         "Content-Length: %lu\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", len);
