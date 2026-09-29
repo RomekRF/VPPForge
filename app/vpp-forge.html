@@ -221,6 +221,7 @@ body.loose-file #prevBody{padding:0 10px 10px}
 
 .viewer-bar{display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap; min-height:22px}
 
+#prevActs .btn.dim{opacity:.45}
 #rsdlg input[type=number], #rsdlg select{height:24px; background:var(--surface-2); color:var(--text);
   border:1px solid var(--border-2); border-radius:var(--r-s); padding:0 6px; font:400 12px var(--mono)}
 #rsdlg select{font-family:var(--sans)}
@@ -2908,6 +2909,118 @@ function findAsset(pred){
   for(const r of state.refs){const h=r.entries.find(pred);if(h)return h;}
   return null;
 }
+/* The frame files an ATX lists, in order, or null when the game would turn
+   it down (Alpine common/atx/parse.h): no [[frame]], a frame without a file,
+   a frame that is itself an .atx, or a name past the engine's 31 characters.
+   A reading of the small part of TOML the format uses, [[frame]] blocks and
+   the inline "frame = [{file = ...}]" form, not a general TOML parser. */
+function atxFrames(e){
+  let txt;
+  try{txt=new TextDecoder("utf-8").decode(entryData(e));}catch(_){return null;}
+  const lines=txt.split(/\r?\n/).map(l=>{        /* comments, but not a # inside quotes */
+    let q=null;
+    for(let i=0;i<l.length;i++){
+      const c=l[i];
+      if(q){if(c==="\\"&&q==='"'){i++;continue;}if(c===q)q=null;}
+      else if(c==='"'||c==="'")q=c;
+      else if(c==="#")return l.slice(0,i);
+    }
+    return l;
+  });
+  const str=v=>{const m=/^\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')/.exec(v);
+    return m?(m[1]!=null?m[1].replace(/\\(["\\])/g,"$1"):m[2]):null;};
+  const depth=t=>{let d=0,q=null;
+    for(let k=0;k<t.length;k++){const c=t[k];
+      if(q){if(c==="\\"&&q==='"'){k++;continue;}if(c===q)q=null;}
+      else if(c==='"'||c==="'")q=c;else if(c==="[")d++;else if(c==="]")d--;}
+    return d;};
+  const files=[];
+  let inFrame=false;
+  for(let i=0;i<lines.length;i++){
+    const l=lines[i].trim();
+    if(!l)continue;
+    let m;
+    if(/^\[\[\s*frame\s*\]\]$/.test(l)){files.push(null);inFrame=true;continue;}
+    if(l[0]==="["){inFrame=false;continue;}
+    if(inFrame&&(m=/^file\s*=(.*)$/.exec(l))){files[files.length-1]=str(m[1]);continue;}
+    if(!inFrame&&/^frame\s*=/.test(l)){
+      let body=l.replace(/^frame\s*=\s*/,"");
+      while(depth(body)>0&&i+1<lines.length)body+="\n"+lines[++i];
+      for(const t of body.match(/\{[^}]*\}/g)||[]){
+        const f=/(?:^|[{,\s])file\s*=\s*("(?:[^"\\]|\\.)*"|'[^']*')/.exec(t);
+        files.push(f?str(f[1]):null);
+      }
+    }
+  }
+  if(!files.length)return null;
+  for(const f of files)if(!f||f.length>31||/\.atx$/i.test(f))return null;
+  return files;
+}
+/* The game's order for a texture name. Alpine checks ATX, DDS, then PNG,
+   JPG and JPEG by stem whatever was asked for (game_patch/bmpman/bmpman.cpp,
+   bm_read_header). After that it is stock RF's rules, which depend on the
+   extension asked for (bm_load_internal): a .tga request tries the .vbm of
+   the same name first, a .vbm request never falls back to .tga, a .pcx
+   request only means PCX, and anything else is not a stock format at all.
+   Format decides before place: a linked VPP's DDS beats the open VPP's TGA,
+   as it would in game, and within one format the open VPP wins. An ATX the
+   game would reject is passed over; one in a linked VPP whose bytes have
+   not arrived yet is returned as it stands and judged once they have. */
+const TEX_ALPINE=["atx","dds","png","jpg","jpeg"];
+const TEX_ANY=new Set([...TEX_ALPINE,"vbm","tga","pcx"]);
+function texOrderFor(name){
+  const x=extOf(name);
+  return TEX_ALPINE.concat(x==="tga"||x===""?["vbm","tga"]:x==="vbm"?["vbm"]:x==="pcx"?["pcx"]:[]);
+}
+function findTexture(name,opts){
+  const st=stemOf(name);
+  if(!st)return null;
+  const found={};
+  const scan=list=>{
+    for(const e of list){
+      const x=extOf(e.name);
+      if(!TEX_ANY.has(x)||x in found)continue;
+      if(stemOf(e.name)===st)found[x]=e;
+    }
+  };
+  scan(state.entries);
+  for(const r of state.refs)scan(r.entries);
+  for(const x of texOrderFor(name)){
+    const hit=found[x];
+    if(!hit)continue;
+    if(x==="atx"){
+      if(opts&&opts.noAtx)continue;              /* an ATX frame is never an ATX */
+      if(hit.refId!=null&&!hit.data)return hit;
+      if(!atxFrames(hit))continue;
+    }
+    return hit;
+  }
+  return null;
+}
+/* the image the game would show for an ATX: its first frame */
+function atxPixelEntry(atx){
+  const frames=atxFrames(atx);
+  return frames?findTexture(frames[0],{noAtx:true}):null;
+}
+/* everything a texture name pulls in: an ATX brings every frame it lists */
+function textureFamily(hit){
+  if(!hit||hit.tkey!=="atx")return hit?[hit]:[];
+  const out=[hit];
+  for(const f of atxFrames(hit)||[]){const x=findTexture(f,{noAtx:true});if(x)out.push(x);}
+  return out;
+}
+/* Make a texture drawable: fetch linked bytes, decode PNG/JPEG, and for an
+   ATX fetch it first, then whatever it resolves to, which may be a frame or,
+   if the ATX turns out to be one the game rejects, the next format down. */
+async function prefetchTexture(name){
+  let hit=findTexture(name);
+  if(hit&&hit.tkey==="atx"&&hit.refId!=null&&!hit.data){
+    await ensureData(hit).catch(()=>null);
+    hit=findTexture(name);
+  }
+  const px=hit&&hit.tkey==="atx"?atxPixelEntry(hit):hit;
+  if(px&&!previewReady(px))await ensurePreviewable(px).catch(()=>null);
+}
 function copyRefEntries(list){
   if(!list.length)return;
   Promise.all(list.map(ensureData)).then(()=>{
@@ -3151,11 +3264,9 @@ function meshWithTextures(e){
     const isVfx=e.tkey==="vfx";
     const model=getDecoded(e,isVfx?"vfx":"v3m");
     const seen=new Set([e.id]);
-    for(const tn of model.textureNames||[]){
-      const st=stemOf(tn);
-      const hit=findAsset(x=>isTexKey(x.tkey)&&stemOf(x.name)===st);
-      if(hit&&!seen.has(hit.id)){seen.add(hit.id);out.push(hit);}
-    }
+    for(const tn of model.textureNames||[])
+      for(const hit of textureFamily(findTexture(tn)))
+        if(!seen.has(hit.id)){seen.add(hit.id);out.push(hit);}
   }catch(_){}
   return out;
 }
@@ -3607,14 +3718,109 @@ async function applyResize(list,sizeFor,opt){
     openPop('<h3>Not resized</h3><ul>'+failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")+"</ul>",menuBtn("tools"));
 }
 /* ---- Mipmaps ---------------------------------------------------------
-   Smaller copies of a texture stored alongside the full-size one, which the
-   renderer picks from by distance. Without them a wall shimmers as you walk
-   away from it. Only DDS carries a chain inside the file; TGA, PNG and JPEG
-   hold one image each, so they are converted to DDS first. */
-const MIPPABLE=new Set(["dds"]);
+   Smaller copies of a texture the renderer picks from by distance, so a
+   wall does not shimmer as you walk away from it. DDS carries its chain
+   inside the file. A TGA carries them as separate files beside it, which is
+   what the rest of this block is about. PNG and JPEG have no way to hold
+   mipmaps at all. */
+const MIPPABLE=new Set(["dds","tga"]);
+/* External TGA mipmaps, as RF 1.20 handles them (bm_read_header and
+   bm_lock_tga, read from the game's own executable):
+   - the files are "<stem>-mip<N>.tga", the stem cut at the name's FIRST dot,
+     N counting from 1, the hyphen and ".tga" fixed;
+   - level N must be exactly the base halved N times, both sides, with the
+     same bit depth; the first missing or wrong file ends the chain, and the
+     game builds every level after it by box-filtering the last one;
+   - a mip name over 40 characters stops the search;
+   - it only happens for power-of-two TGAs, and stock RF only up to 256 px;
+     Dash Faction and Alpine lift the size limit but not the power-of-two one.
+   So a generated file looks the same as the level the game would build. It
+   saves that work at load, gives the lower texture-quality settings a
+   smaller file to start from, and is there to be hand-tuned. Names like
+   foo_mip1.tga, and -mip2/-mip3 pairs with no -mip1, are the low-detail
+   textures that meshes and levels use by name: they are never mips, and
+   this never writes over one. */
+const TGA_MIP_LEVELS=2;          /* what the game's own mipmapped TGAs carry */
+const TGA_MIP_NAME_MAX=40;
+const mipStem=n=>{const i=n.indexOf(".");return i<0?n:n.slice(0,i);};
+const isPow2=v=>v>0&&(v&(v-1))===0;
+const bppOf=e=>{const m=/(\d+)-bit/.exec(e.info||"");return m?+m[1]:0;};
+const tgaMipName=(e,n)=>mipStem(e.name)+"-mip"+n+".tga";
+function findLinkedByName(low){
+  for(const r of state.refs){const h=r.entries.find(x=>x.name.toLowerCase()===low);if(h)return h;}
+  return null;
+}
+/* why a TGA cannot take mip files, or null when it can */
+function tgaMipBlocker(w,h,bpp){
+  if(!isPow2(w)||!isPow2(h))return w+" × "+h+" is not a power of two, and the game only mipmaps power-of-two TGAs";
+  if(bpp!==24&&bpp!==32)return bpp+"-bit: mip files must match it, and only 24 and 32-bit can be written";
+  if(Math.min(w,h)<2)return w+" × "+h+" is too small for a smaller level";
+  return null;
+}
+/* One status for every kind of mipmappable file, for the labels. */
+function mipStatus(e){
+  if(e.tkey==="dds"){
+    const d=dimsOfEntry(e);
+    const want=d?fullMipCount(d.w,d.h):0,have=mipsOf(e);
+    return !d||have<want?{need:true,label:have>1?"Finish the mipmap chain ("+have+" of "+want+" levels)":"Build mipmaps"}
+                        :{done:true,label:"Mipmaps complete ("+have+" levels)"};
+  }
+  if(e.tkey!=="tga")return {na:true,label:"No mipmaps for this file"};
+  const d=dimsOfEntry(e),bpp=bppOf(e);
+  if(!d)return {na:true,label:"No mipmaps: the header cannot be read"};
+  const why=tgaMipBlocker(d.w,d.h,bpp);
+  if(why)return {na:true,label:"No mipmaps: "+why};
+  const want=Math.min(TGA_MIP_LEVELS,Math.floor(Math.log2(Math.min(d.w,d.h))));
+  for(let n=1;n<=want;n++){
+    const nm=tgaMipName(e,n),low=nm.toLowerCase();
+    if(nm.length>TGA_MIP_NAME_MAX)return n>1?{done:true,label:"Mipmaps complete ("+(n-1)+" of "+want+", the rest would pass 40 characters)"}
+                                            :{na:true,label:"No mipmaps: "+nm+" would pass the 40 characters the game reads"};
+    const own=state.entries.find(x=>x.name.toLowerCase()===low);
+    if(!own)return {need:true,label:n>1?"Add the next mipmap file ("+(n-1)+" of "+want+")":"Build mipmap files"};
+    const od=dimsOfEntry(own);
+    if(!od||od.w!==d.w>>n||od.h!==d.h>>n||bppOf(own)!==bpp)
+      return n>1?{done:true,label:"Mipmaps as far as "+tgaMipName(e,n-1)+" ("+nm+" is a different texture)"}
+                :{na:true,label:"No mipmaps: "+nm+" is already a different texture"};
+  }
+  return {done:true,label:"Mipmap files complete ("+want+" levels, the game builds the rest)"};
+}
+const needsMips=e=>!!mipStatus(e).need;
+/* Plan and build the files for one TGA. Levels already right are kept, a
+   hand-made one included, and the next level is made from it the way the
+   game would. A copy in a linked VPP is written fresh into this one, so the
+   mip matches the base being edited here. A same-named file of the wrong
+   size ends the chain there, as it would in game, and is left alone. */
+async function tgaMipFiles(e,opt){
+  const img=getDecoded(e,"tga");
+  const w=img.width,h=img.height,bpp=img.bpp;
+  const why=tgaMipBlocker(w,h,bpp);
+  if(why)throw new Error(why);
+  const want=Math.min(TGA_MIP_LEVELS,Math.floor(Math.log2(Math.min(w,h))));
+  const add=[];
+  let kept=0,stopped=null,prev=img.rgba,pw=w,ph=h;
+  for(let n=1;n<=want;n++){
+    const mw=w>>n,mh=h>>n,name=tgaMipName(e,n),low=name.toLowerCase();
+    if(name.length>TGA_MIP_NAME_MAX){stopped=name+" would pass the 40 characters the game reads";break;}
+    const own=state.entries.find(x=>x.name.toLowerCase()===low);
+    const ex=own||findLinkedByName(low);
+    let exImg=null;
+    if(ex){
+      try{await ensureData(ex);exImg=decodeTga(entryData(ex));}catch(_){exImg=null;}
+      const fits=exImg&&exImg.width===mw&&exImg.height===mh&&exImg.bpp===bpp;
+      if(!fits){
+        stopped=ex.name+(exImg?" is "+exImg.width+" × "+exImg.height+(exImg.bpp!==bpp?" "+exImg.bpp+"-bit":"")
+          +", not "+mw+" × "+mh:" cannot be read")+": left alone, since something may use it by name";
+        break;
+      }
+      if(own){kept++;prev=exImg.rgba;pw=mw;ph=mh;continue;}
+    }
+    const px=resamplePixels(prev,pw,ph,mw,mh,opt.smooth);
+    prev=px;pw=mw;ph=mh;
+    add.push({name,bytes:encodeTga(mw,mh,px,bpp===32)});
+  }
+  return {add,kept,want,stopped};
+}
 const mipsOf=e=>{const m=/· (\d+) mips/.exec(e.info||"");return m?+m[1]:1;};
-/* a chain short of 1×1 still gets rebuilt, so "has some" is not "done" */
-const needsMips=e=>{const d=dimsOfEntry(e);return !d||mipsOf(e)<fullMipCount(d.w,d.h);};
 /* Keep the file's own base level and append the smaller ones. Re-encoding
    the full-size image would cost a generation of DXT quality for nothing. */
 function ddsAppendMips(bytes,img,smooth){
@@ -3655,22 +3861,48 @@ async function generateMips(list,opt){
   const skipped=list.filter(e=>!MIPPABLE.has(e.tkey)).length;
   list=list.filter(e=>MIPPABLE.has(e.tkey)&&e.refId==null);
   if(!list.length){
-    toast(skipped?"Only DDS files hold mipmaps · convert these to DDS first"
-                 :"No DDS textures here",true);
+    toast(skipped?"Only DDS and TGA take mipmaps · PNG and JPEG hold one image, VBM carries its own"
+                 :"No DDS or TGA textures here",true);
     return;
   }
   if(generateMips._busy)return;
   generateMips._busy=true;
   const prog=progressOverlay(list.length===1?"Building mipmaps":"Building mipmaps for "+list.length+" textures");
   const pre=snapEntries();
-  let ok=0,already=0,grew=0,levels=0;
-  const failed=[],newSel=new Set();
+  let ok=0,already=0,grew=0,levels=0,files=0;
+  const failed=[],notes=[],newSel=new Set();
   try{
     for(let i=0;i<list.length;i++){
       const e=list[i];
       prog.set(i/list.length,(i+1)+" of "+list.length+" · "+e.name);
       await prog.paint();
       try{
+        if(e.tkey==="tga"){
+          const r=await tgaMipFiles(e,opt);
+          if(r.stopped)notes.push(e.name+": "+r.stopped);
+          if(!r.add.length){
+            /* nothing to add: done, or as far as the game would go */
+            if(r.kept>0||!r.stopped)already++;
+            else failed.push(e.name+" ("+r.stopped+")");
+            continue;
+          }
+          /* the new files go after their base, and after any mip of it
+             already in the VPP, so the levels read in order */
+          const stemLow=mipStem(e.name).toLowerCase();
+          let at=state.entries.indexOf(e)+1;
+          state.entries.forEach((x,i)=>{
+            if(i>=at&&x.name.toLowerCase().startsWith(stemLow+"-mip")&&/-mip\d+\.tga$/i.test(x.name))at=i+1;
+          });
+          for(const f of r.add){
+            const ne={name:f.name,size:f.bytes.length,offset:null,data:f.bytes,id:nextId++};
+            probeInfo(ne);
+            state.entries.splice(at++,0,ne);
+            newSel.add(ne.id);grew+=f.bytes.length;files++;
+          }
+          levels=Math.max(levels,r.kept+r.add.length);
+          ok++;newSel.add(e.id);
+          continue;
+        }
         const r=await mipEntry(e,opt);
         if(r.already){already++;continue;}
         grew+=r.bytes.length-e.size;
@@ -3693,14 +3925,18 @@ async function generateMips(list,opt){
     state.sel=newSel;
     state.anchor=newSel.size?[...newSel][0]:null;
     refreshAll();
-    toast("Mipmapped "+plural(ok,"texture")+" · up to "+levels+" levels · "+fmtBytes(grew)+" larger"
+    toast("Mipmapped "+plural(ok,"texture")+(files?" · "+plural(files,"mip file")+" added":"")
+      +" · "+fmtBytes(grew)+" larger"
       +(already?" · "+already+" already had them":"")
-      +(skipped?" · "+skipped+" not DDS":"")
-      +(failed.length?" · "+failed.length+" failed":"")+" · Ctrl S to save",failed.length>0);
+      +(skipped?" · "+skipped+" can't take them":"")
+      +(failed.length?" · "+failed.length+" couldn't":"")+" · Ctrl S to save",failed.length>0&&!ok);
   }else if(failed.length)toast("No mipmaps built · "+plural(failed.length,"texture")+" failed",true);
   else if(already)toast(already===1?"This one already has mipmaps":"All "+already+" already have mipmaps");
-  if(failed.length)
-    openPop('<h3>No mipmaps built</h3><ul>'+failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")+"</ul>",menuBtn("tools"));
+  /* a chain that stopped early is not a failure, but say where and why */
+  const lines=failed.map(f=>'<li class="warn">'+esc(f)+"</li>")
+    .concat(notes.filter(n=>!failed.some(f=>f.startsWith(n.split(":")[0]+" ("))).map(n=>"<li>"+esc(n)+"</li>"));
+  if(lines.length)
+    openPop('<h3>'+(ok?"Not everything took mipmaps":"No mipmaps built")+'</h3><ul>'+lines.join("")+"</ul>",menuBtn("tools"));
 }
 function showResizeDialog(list,opts){
   list=(list||[]).filter(e=>e&&RESIZABLE.has(e.tkey)&&e.refId==null);
@@ -4199,11 +4435,11 @@ function renderContent(body,e,big,acts){
           ?('<b>'+img.width+' × '+img.height+'</b> · '+img.fmtName+(img.hasAlpha?' · alpha':'')+' · needs Alpine Faction 1.4')
           :('<b>'+img.width+' × '+img.height+'</b> · '+img.bpp+'-bit'+(img.imgType>=9?' · RLE':'')+(img.hasAlpha?' · alpha':''));
         renderImage(body,e,img,meta,big);
-        if(MIPPABLE.has(k)&&e.refId==null)
-          addAct(IC.mip,needsMips(e)?(img.mips>1?"Finish the mipmap chain ("+img.mips+" of "
-                   +fullMipCount(img.width,img.height)+" levels)":"Build mipmaps")
-                   :"Mipmaps complete ("+img.mips+" levels)",
-                 ()=>generateMips([e]));
+        if(MIPPABLE.has(k)&&e.refId==null){
+          const ms=mipStatus(e);
+          addAct(IC.mip,ms.label,()=>generateMips([e]));
+          if(!ms.need&&acts&&acts.lastElementChild)acts.lastElementChild.classList.add("dim");
+        }
         if(RESIZABLE.has(k)&&e.refId==null)
           addAct(IC.resize,"Resize this image",()=>showResizeDialog([e]));
         addAct(IC.png,"Export as PNG",()=>exportCanvasPng(body.querySelector("canvas"),baseName(e.name)+".png"));
@@ -4512,6 +4748,7 @@ function loadThree(){
 }
 const stemOf=n=>{if(!n)return "";const f=n.replace(/\\/g,"/").split("/").pop();const d=f.lastIndexOf(".");return (d>0?f.slice(0,d):f).toLowerCase();};
 function textureCanvasFor(entry){
+  if(entry&&entry.tkey==="atx"){const f=atxPixelEntry(entry);return f?textureCanvasFor(f):null;}
   try{
     const k=entry.tkey==="vbm"?"vbm":entry.tkey==="dds"?"dds":entry.tkey==="pcx"?"pcx":
             (entry.tkey==="png"||entry.tkey==="jpg")?"bitmap":"tga";
@@ -4676,10 +4913,7 @@ function render3d(body,e,big,r3opts){
   const hint=document.createElement("div");
   hint.className="hint3d";hint.textContent="drag rotate · wheel zoom · right-drag pan";
   holder.appendChild(hint);
-  const texEntryFor=tn=>{
-    const st=stemOf(tn);
-    return findAsset(x=>isTexKey(x.tkey)&&stemOf(x.name)===st)||null;
-  };
+  const texEntryFor=tn=>findTexture(tn);
   wrapOuter.appendChild(bar);
   if(model.textureNames.length){
     const conn=document.createElement("div");
@@ -4689,12 +4923,19 @@ function render3d(body,e,big,r3opts){
       const c=document.createElement("button");
       c.className="chip3d"+(hit?"":" miss");
       c.textContent=hit?hit.name:tn;
-      c.title=hit?"Used by this mesh · click to view it without leaving the model":"Used by this mesh · not found in this VPP or any linked one";
+      const frames=hit&&hit.tkey==="atx"?atxFrames(hit):null;
+      const near=!hit?findAsset(x=>TEX_ANY.has(extOf(x.name))&&stemOf(x.name)===stemOf(tn)):null;
+      c.title=!hit?(near?"Asked for "+tn+" · the game will not use "+near.name+" in its place"
+                         :"Used by this mesh · not found in this VPP or any linked one")
+        :frames?"Alpine texture · "+plural(frames.length,"frame")+", first "+frames[0]+" · click to view it"
+        :stemOf(hit.name)===stemOf(tn)&&extOf(hit.name)!==extOf(tn)
+          ?"Asked for "+tn+"; the game loads "+hit.name+" in its place · click to view it"
+          :"Used by this mesh · click to view it without leaving the model";
       /* peek at the texture over the model instead of navigating away, so
          several can be checked in turn and Esc lands back on the mesh */
       if(hit)c.addEventListener("click",()=>{
         ensureData(hit)
-          .then(()=>openLightbox(hit))
+          .then(()=>openLightbox(hit.tkey==="atx"?(atxPixelEntry(hit)||hit):hit))
           .catch(()=>toast("Could not read "+hit.name,true));
       });
       conn.appendChild(c);
@@ -4740,11 +4981,7 @@ function render3d(body,e,big,r3opts){
   holder.appendChild(loading);
   /* pull any textures that live in linked VPPs before building, since the
      texture lookup inside the builder is synchronous */
-  const prefetch=(model.textureNames||[]).map(tn=>{
-    const st=stemOf(tn);
-    const hit=findAsset(x=>isTexKey(x.tkey)&&stemOf(x.name)===st);
-    return (hit&&!previewReady(hit))?ensurePreviewable(hit).catch(()=>null):null;
-  }).filter(Boolean);
+  const prefetch=(model.textureNames||[]).map(prefetchTexture);
   Promise.all([loadThree(),...prefetch]).then(()=>{
     loading.remove();
     if(!body.isConnected)return;
@@ -4793,11 +5030,9 @@ function makeViewer3d(holder,model,ui){
     const st=stemOf(name);
     if(!st)return null;
     if(texCache.has(st))return texCache.get(st);
-    /* open VPP wins, then linked ones, mirroring how the game overrides stock */
-    let entry=findAsset(x=>x.name.toLowerCase()===st+".dds")
-           ||findAsset(x=>x.name.toLowerCase()===st+".tga")
-           ||findAsset(x=>x.name.toLowerCase()===st+".vbm")
-           ||findAsset(x=>isTexKey(x.tkey)&&stemOf(x.name)===st);
+    /* the game's order, and for an ATX the frame it would show */
+    let entry=findTexture(name);
+    if(entry&&entry.tkey==="atx")entry=atxPixelEntry(entry);
     if(entry&&!entry.data&&entry.refId!=null)entry=null; /* not fetched yet */
     let tex=null;
     if(entry){
@@ -5149,8 +5384,8 @@ function contextItems(){
     ...((()=>{const dd=[...state.sel].map(byId).filter(x=>x&&MIPPABLE.has(x.tkey));
       if(!dd.length)return [];
       const need=dd.filter(needsMips).length;
-      return [{label:!need?(dd.length===1?"Mipmaps complete":"Mipmaps complete on all "+dd.length)
-                     :dd.length===1?"Build mipmaps"
+      return [{label:dd.length===1?mipStatus(dd[0]).label
+                     :!need?"Nothing here needs mipmaps"
                      :"Build mipmaps for "+plural(need,"texture")+(need<dd.length?" of "+dd.length:""),
                icon:IC.mip,off:!need,fn:()=>generateMips(dd)}];})()),
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
@@ -5436,13 +5671,13 @@ function menuItems(which){
                  icon:IC.resize,off:!pick.length,fn:()=>showResizeDialog(pick)}];
       })()),
       ...((()=>{
-        /* the selection when it holds DDS, otherwise every DDS in the VPP */
+        /* the selection when it holds DDS or TGA, otherwise every one in the VPP */
         const sel=[...state.sel].map(byId).filter(x=>x&&MIPPABLE.has(x.tkey));
         const all=state.entries.filter(x=>MIPPABLE.has(x.tkey));
         const pick=sel.length?sel:all;
         const need=pick.filter(needsMips).length;
         return [{label:sel.length?"Build mipmaps for "+plural(sel.length,"selected texture")
-                                 :"Build mipmaps for all "+plural(all.length,"DDS texture"),
+                                 :"Build mipmaps for all "+plural(all.length,"DDS and TGA texture"),
                  icon:IC.mip,off:!need,
                  k:pick.length?(need?need+" need them":"all done"):"",
                  fn:()=>generateMips(pick)}];

@@ -12,10 +12,14 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   files.
 - Viewers for TGA, DDS, PNG, JPEG, PCX and VBM textures, V3M static
   meshes, VF fonts, RFL levels, tables and audio.
-- Reads the formats Alpine Faction 1.4 adds: PNG and JPEG textures preview
-  and resolve on meshes exactly like TGA, and ATX files are named and read
-  as text. A VPP holding any of them says so in VPP checks, since older
-  builds of the game cannot load them.
+- Reads the formats Alpine Faction 1.4 adds: PNG and JPEG textures preview,
+  and an ATX shows its first frame on the model. A VPP holding any of them
+  says so in VPP checks, since older builds of the game cannot load them.
+- A mesh's textures resolve the way the game resolves them: ATX, then DDS,
+  then PNG, JPG and JPEG by name, then stock RF's rules, where a .tga
+  request takes the .vbm of the same name first and a .vbm request never
+  falls back to .tga. The texture names above the viewer say when the game
+  loads a different file than the mesh asked for.
 - V3C characters load as real skeletons and play RFA animations in the
   3D viewer, with Play/Pause, a scrubber and a time readout. Select an
   RFA on its own and it previews on a matching character from the VPP.
@@ -38,11 +42,18 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   the format it already had, so meshes and levels keep finding it, DDS
   mipmap chains are rebuilt, and the colour under transparent pixels
   survives the trip.
-- Build mipmaps for one DDS texture, a selection, or every DDS in the VPP.
-  The full-size image is kept byte for byte and only the smaller levels are
-  added, so there is no second round of DXT loss. Textures that already
-  have a complete chain are left alone, and a chain that stops short is
-  finished.
+- Build mipmaps for one texture, a selection, or every DDS and TGA in the
+  VPP. A DDS gets its chain inside the file: the full-size image is kept
+  byte for byte and only the smaller levels are added, so there is no second
+  round of DXT loss. A TGA gets separate `<name>-mip1.tga` and `-mip2.tga`
+  files, named and sized exactly as the game's own loader looks for them
+  (read from RF 1.20's bm_read_header): each level half the last, same bit
+  depth, power-of-two textures only, names up to 40 characters. The game
+  builds the smaller levels itself, so these mainly save load time, help
+  the lower texture-quality settings, and give you files to hand-tune.
+  Existing files are never written over: the low-detail textures stock
+  characters use by name (`foo-mip2.tga` with no `-mip1`, or `foo_mip1.tga`)
+  are left exactly as they are.
 - Extract opens the native Windows folder picker and unpacks straight
   into the folder you choose.
 

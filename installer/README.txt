@@ -37,8 +37,11 @@ USING IT
     reads the PNG and JPEG textures Alpine Faction 1.4 introduces.
   - Right-click an image for Resize: percentage or exact size, for one
     file or a whole selection, written back in the same format.
-  - Right-click a DDS for Build mipmaps, or use Tools to do every DDS
-    in the VPP at once. Textures already mipmapped are skipped.
+  - Right-click a DDS or TGA for Build mipmaps, or use Tools to do every
+    one in the VPP at once. A DDS gets its levels inside the file; a TGA
+    gets -mip1 and -mip2 files beside it, the way the game looks for them.
+    Textures already mipmapped are skipped, and existing files are never
+    written over.
   - Arrow keys move through the list, Space plays and pauses an
     animation or a sound, F2 renames, Del removes, Alt Up/Down
     reorders, Ctrl S saves, Ctrl E extracts, Ctrl F filters.
