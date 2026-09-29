@@ -2738,6 +2738,7 @@ function probeInfo(e){
    Archive operations
    ================================================================ */
 function loadArchive(name,buf){
+  if(batchBusy()){toast("Still working · open it again when it finishes",true);return;}
   if(state.dirty&&!confirm("Discard unsaved changes?"))return;
   let parsed;
   try{ parsed=parseVpp(buf); }
@@ -2760,6 +2761,7 @@ function loadArchive(name,buf){
   refreshAll();
 }
 function newArchive(){
+  if(batchBusy())return;
   if(state.dirty&&!confirm("Discard unsaved changes?"))return;
   closeLightbox();
   state.name="untitled.vpp"; state.srcBytes=null; state.entries=[]; state.saveId=null;
@@ -2770,9 +2772,12 @@ function newArchive(){
   $("search").value="";
   refreshAll();
 }
-/* ---- undo / redo: shallow snapshots of the entry list (data buffers shared) */
+/* ---- undo / redo: shallow snapshots of the entry list (data buffers shared).
+   A snapshot keeps the buffer its unread entries point into. A save lets
+   state.srcBytes go, and a snapshot taken before it, even one a batch is
+   still holding when the save lands, must not read from nothing. */
 const undoStack=[],redoStack=[];
-const snapEntries=()=>state.entries.map(e=>({...e}));
+const snapEntries=()=>{const s=state.entries.map(e=>({...e}));s.src=state.srcBytes;return s;};
 function pushUndoSnap(snap){
   undoStack.push(snap);
   if(undoStack.length>50)undoStack.shift();
@@ -2780,7 +2785,12 @@ function pushUndoSnap(snap){
 }
 function pushUndo(){pushUndoSnap(snapEntries());}
 function applySnap(s){
-  state.entries=s.map(e=>({...e}));
+  state.entries=s.map(e=>{
+    const c={...e};
+    if(!c.data&&c.refId==null&&c.offset!=null&&s.src&&s.src!==state.srcBytes)
+      c.data=s.src.subarray(c.offset,c.offset+c.size);
+    return c;
+  });
   state.sel=new Set([...state.sel].filter(id=>state.entries.some(e=>e.id===id)));
   if(state.anchor!=null&&!state.entries.some(e=>e.id===state.anchor))state.anchor=null;
   state.dirty=true;
@@ -2802,7 +2812,7 @@ function redo(){
 function addFiles(fileList){
   if(!fileList.length)return;
   if(state.name===null){state.name="untitled.vpp";state.entries=[];}
-  Promise.all([...fileList].map(f=>f.arrayBuffer().then(ab=>({f,ab})))).then(list=>{
+  Promise.all([...fileList].map(f=>f.arrayBuffer().then(ab=>({f,ab})))).then(list=>whenIdle(()=>{
     const pre=snapEntries();
     let added=0,replaced=0;const skipped=[];
     let lastId=null;
@@ -2836,18 +2846,22 @@ function addFiles(fileList){
     if(replaced)bits.push(replaced+" replaced");
     if(skipped.length)bits.push(skipped.length+" skipped, name over "+NAME_MAX+" chars");
     if(bits.length)toast(bits.join(" · "),skipped.length>0&&!added&&!replaced);
-  });
+  }));
 }
 function removeSelected(){
   if(viewingRef()){toast("Linked VPPs are read-only",true);return;}
   if(!state.sel.size)return;
   pushUndo();
-  const n=state.sel.size;
-  for(const id of state.sel)decodeCache.delete(id);
-  state.entries=state.entries.filter(e=>!state.sel.has(e.id));
+  /* a texture's mip files go with it: left behind, the game would put them
+     on the stock texture of that name */
+  const drop=new Set(state.sel);
+  for(const e of state.entries)if(state.sel.has(e.id))for(const x of ownMipChain(e))drop.add(x.id);
+  const n=state.sel.size,mips=drop.size-n;
+  for(const id of drop)decodeCache.delete(id);
+  state.entries=state.entries.filter(e=>!drop.has(e.id));
   state.sel.clear(); state.dirty=true;
   refreshAll();
-  toast(plural(n,"file")+" removed");
+  toast(plural(n,"file")+" removed"+(mips?" · with "+plural(mips,"mip file")+" of "+(n===1?"it":"theirs"):""));
 }
 /* ---- linked VPPs: read-only asset sources for previews ---- */
 function refAlready(id){return state.refs.some(r=>r.srcId===id);}
@@ -3114,7 +3128,7 @@ async function prefetchTexture(name){
 }
 function copyRefEntries(list){
   if(!list.length)return;
-  Promise.all(list.map(ensureData)).then(()=>{
+  Promise.all(list.map(ensureData)).then(()=>whenIdle(()=>{
     pushUndo();
     let added=0,skipped=0;
     for(const e of list){
@@ -3131,7 +3145,7 @@ function copyRefEntries(list){
       refreshAll();
       toast(added+" copied into "+state.name+(skipped?" · "+skipped+" already here":"")+" · Ctrl S to save");
     }else toast(skipped?"Already in this VPP":"Nothing copied",true);
-  }).catch(()=>toast("Could not read the linked file",true));
+  })).catch(()=>toast("Could not read the linked file",true));
 }
 function copySelectedNames(){
   if(!state.sel.size)return;
@@ -3183,13 +3197,7 @@ function commitSaved(nm){
   const src=state.srcBytes;
   for(const e of state.entries)
     if(!e.data&&src&&e.offset!=null)e.data=src.subarray(e.offset,e.offset+e.size);
-  /* Undo and redo hold copies of entries that still point into the buffer
-     the VPP was opened from. It is about to go, so give them their bytes
-     too, or the first undo after a save reads from nothing and every save
-     after it fails. */
-  if(src)for(const snap of undoStack.concat(redoStack))
-    for(const e of snap)
-      if(!e.data&&e.refId==null&&e.offset!=null)e.data=src.subarray(e.offset,e.offset+e.size);
+  /* undo and redo snapshots keep their own reference to it (snapEntries) */
   state.srcBytes=null;
   let off=align2048(SECTOR+64*state.entries.length);
   for(const e of state.entries){e.offset=off;off+=align2048(e.size);}
@@ -3257,6 +3265,7 @@ function bridgeLoad(id,name){
 /* View one file on its own, with no VPP: the same viewers, minus editing.
    Models still find their textures through any linked VPPs. */
 function loadLooseFile(name,ab){
+  if(batchBusy()){toast("Still working · open it again when it finishes",true);return;}
   if(state.dirty&&!confirm("Discard unsaved changes?"))return;
   closeLightbox();
   const bytes=new Uint8Array(ab);
@@ -3558,11 +3567,14 @@ function encodeDdsRaw(levels){
   }
   return out;
 }
-/* True while a batch tool works through files. Keys, drops and autosave
-   wait meanwhile: the tool holds the entries it is changing, and an undo, a
-   delete, a save or another VPP opened halfway would pull them out from
-   under it (TGA to DDS would even overwrite the wrong file). */
+/* True while a batch tool works through files. Keys, drops, opening a VPP
+   and autosave wait meanwhile: the tool holds the entries it is changing,
+   and an undo, a delete, a save or another VPP opened halfway would pull
+   them out from under it (TGA to DDS would even overwrite the wrong file). */
 const batchBusy=()=>!!(generateMips._busy||applyResize._busy||tgaEntriesToDds._busy);
+/* run fn now, or once the running batch is done (files read in the
+   background land after it, not in the middle of it) */
+function whenIdle(fn){const go=()=>{if(batchBusy())setTimeout(go,150);else fn();};go();}
 /* the modal progress box the batch tools put up while they work */
 function progressOverlay(title){
   const ov=document.createElement("div");
@@ -3590,11 +3602,12 @@ async function tgaEntriesToDds(list){
   if(tgaEntriesToDds._busy)return;
   tgaEntriesToDds._busy=true;
   const prog=progressOverlay("Converting TGA → DDS");
-  const pre=snapEntries();
+  const pre=snapEntries(),ents=state.entries;
   let ok=0,dxt1=0,dxt5=0,deadMips=0;
   const failed=[],failedEntries=[],newSel=new Set();
   try{
     for(let i=0;i<list.length;i++){
+      if(state.entries!==ents)break;       /* another file list was put in place */
       const e=list[i];
       prog.set(i/list.length,(i+1)+" of "+list.length+" · "+e.name);
       await prog.paint();
@@ -3631,7 +3644,7 @@ async function tgaEntriesToDds(list){
     prog.done();
     tgaEntriesToDds._busy=false;
   }
-  if(ok){
+  if(ok&&state.entries===ents){
     pushUndoSnap(pre);
     state.dirty=true;
     state.sel=newSel;
@@ -3787,17 +3800,24 @@ async function resizeEntry(e,sizeFor,opt){
 }
 async function applyResize(list,sizeFor,opt){
   if(applyResize._busy)return;
+  /* a base's mip files are made again from it; scaling them on their own
+     as well would halve them twice and break the chain */
+  const levels=new Set(list.flatMap(e=>ownMipChain(e)));
+  list=list.filter(e=>!levels.has(e));
+  if(!list.length)return;
   applyResize._busy=true;
   const prog=progressOverlay(list.length===1?"Resizing image":"Resizing "+list.length+" images");
-  const pre=snapEntries();
+  const pre=snapEntries(),ents=state.entries;
   let ok=0,same=0,saved=0,last="",mipsRebuilt=0,mipsRemoved=0;
   const failed=[],newSel=new Set();
   try{
     for(let i=0;i<list.length;i++){
+      if(state.entries!==ents)break;       /* another file list was put in place */
       const e=list[i];
       prog.set(i/list.length,(i+1)+" of "+list.length+" · "+e.name);
       await prog.paint();
       try{
+        if(!state.entries.includes(e))continue;
         const chain=ownMipChain(e);
         const r=await resizeEntry(e,sizeFor,opt);
         if(!r){same++;continue;}
@@ -3818,7 +3838,7 @@ async function applyResize(list,sizeFor,opt){
     prog.done();
     applyResize._busy=false;
   }
-  if(ok){
+  if(ok&&state.entries===ents){
     pushUndoSnap(pre);
     state.dirty=true;
     state.sel=newSel;
@@ -3890,21 +3910,25 @@ function pixelDiff(a,b){
   return Math.max(wsum?rgb/wsum:0,n?alpha/n:0);
 }
 /* The base whose chain this TGA is a level of, as the game would take it,
-   or null. The game reads levels in order, so every level below must exist.
-   A linked base that this VPP's own copy shadows does not count. A linked
-   base not read yet is assumed to fit. */
+   or null. Only a power-of-two base has a chain, and the game reads levels
+   in order, so every level below must be there and fit too. A linked base
+   that this VPP's own copy shadows does not count. A file not read yet is
+   assumed to fit. */
 function mipLevelOf(e){
   const m=MIP_NAME_RE.exec(e.name);
   if(!m||e.tkey!=="tga")return null;
   const n=+m[2],stem=m[1],d=dimsOfEntry(e);
   if(!(n>=1))return null;
-  for(let k=1;k<n;k++){const x=nameSlot(stem+"-mip"+k+".tga");if(!x.own&&!x.linked)return null;}
+  const below=[];
+  for(let k=1;k<n;k++){const x=nameSlot(stem+"-mip"+k+".tga"),f=x.own||x.linked;if(!f)return null;below.push(f);}
   for(const b of assetIndex().byMipStem.get(stem.toLowerCase())||[]){
     if(b===e)continue;
     if(b.refId!=null&&nameSlot(b.name).own)continue;
     const bd=dimsOfEntry(b);
     if(!bd)return {n,base:b};
-    if(d&&bd.w>>n===d.w&&bd.h>>n===d.h&&bppOf(b)===bppOf(e))return {n,base:b};
+    if(!isPow2(bd.w)||!isPow2(bd.h))continue;
+    const fits=(x,k)=>{const xd=dimsOfEntry(x);return !xd||xd.w===bd.w>>k&&xd.h===bd.h>>k&&bppOf(x)===bppOf(b);};
+    if(d&&fits(e,n)&&below.every((x,i)=>fits(x,i+1)))return {n,base:b};
   }
   return null;
 }
@@ -3951,7 +3975,16 @@ function mipStatus(e){
   for(let n=1;n<=want;n++){
     const slot=nameSlot(tgaMipName(e,n)),ex=slot.own||slot.linked;
     const next=n>1?"Add the next mipmap file ("+(n-1)+" of "+want+" in place)":"Build mipmap files";
-    if(!ex)return {need:true,label:next};
+    if(!ex){
+      const hi=fitAbove(e,d,bpp,n,want);
+      if(hi&&hi.unread)return {check:true,label:"Check the mipmap files ("+hi.x.name+", in a linked VPP, is not read yet)"};
+      if(hi){
+        const why=hi.x.name+" is there without "+tgaMipName(e,n)+", so it is a texture meshes use by name";
+        return n>1?{done:true,label:"Mipmap files as far as "+tgaMipName(e,n-1)+"; "+why}
+                  :{na:true,label:"No mipmaps: "+why};
+      }
+      return {need:true,label:next};
+    }
     if(!ex.info&&ex.data)probeInfo(ex);            /* bytes here, header not read yet */
     const od=dimsOfEntry(ex);
     if(!od){
@@ -3968,6 +4001,22 @@ function mipStatus(e){
   return {done:true,label:"Mipmap files in place · click to check them against the texture"};
 }
 const needsMips=e=>!!mipStatus(e).need;
+/* Level n is missing. The first file past it that the game would read as a
+   level once n is written, walking as planTgaMips does, or null. A linked
+   file not read yet comes back as {unread}. */
+function fitAbove(e,d,bpp,n,want){
+  for(let k=n+1;Math.min(d.w>>k,d.h>>k)>=1;k++){
+    const name=tgaMipName(e,k);
+    if(name.length>TGA_MIP_NAME_MAX)return null;
+    const slot=nameSlot(name),x=slot.own||slot.linked;
+    if(!x){if(k>want)return null;continue;}
+    if(!x.info&&x.data)probeInfo(x);
+    const xd=dimsOfEntry(x);
+    if(!xd)return x.refId!=null&&!x.data?{x,unread:true}:null;
+    return xd.w===d.w>>k&&xd.h===d.h>>k&&bppOf(x)===bpp?{x}:null;
+  }
+  return null;
+}
 /* Does this texture differ from every linked copy of itself? Only then are
    the linked VPPs' mip files stale for it. Pixels are compared, not bytes,
    and a linked VPP that is this VPP's own file on disk does not count: it
@@ -3995,9 +4044,10 @@ async function differsFromLinked(e){
    and the chain ends at the first one that is missing. An existing level:
    - of the wrong size or depth ends the chain there and is left alone;
      meshes and levels often name those directly as low-detail textures;
-   - past a level this plan writes into a gap was out of the game's reach
-     until now. It is a texture in its own right and is never changed; if it
-     would not pass for this level, the gap is left open instead;
+   - that fits, past a level missing below it, was out of the game's reach:
+     a texture meshes and levels name directly (stock low-detail skins are
+     -mip2 and -mip3 with no -mip1). Filling the gap would make the game
+     read it as a mip and tie it to this chain, so the gap stays open;
    - in this VPP that no longer looks like a smaller copy of the level above
      (or cannot be read) is offered for replacement, and a hand-tuned mip
      stays unless you agree (opt.keepStale keeps them all);
@@ -4041,10 +4091,9 @@ async function planTgaMips(e,opt){
       break;
     }
     if(gap>=0){
-      if(pixelDiff(fresh,exImg.rgba)<=MIP_STALE){plan.kept++;step(exImg.rgba);continue;}
       plan.writes.length=gap;plan.kept=gapKept;
-      plan.stopped="Writing "+gapName+" would make the game read "+ex.name+" as a mip, and it does not look like one."
-        +" Left as it is: meshes and levels may use it by name";
+      plan.stopped=ex.name+" is there without "+gapName+", so it is a texture meshes and levels use by name."
+        +" Writing "+gapName+" would make the game read it as a mip, so both are left as they are";
       break;
     }
     if(slot.own){
@@ -4059,10 +4108,14 @@ async function planTgaMips(e,opt){
   }
   return plan;
 }
-/* A TGA's own mip files, as far as they form its chain at its current size. */
+/* A TGA's own mip files, as far as they form its chain at its current size.
+   None for a base the game gives no chain (not a power of two), or one that
+   shares its first-dot stem, and so these files, with another texture. */
 function ownMipChain(e){
   const d=dimsOfEntry(e),bpp=bppOf(e),out=[];
-  if(e.tkey!=="tga"||!d)return out;
+  if(e.tkey!=="tga"||!d||!isPow2(d.w)||!isPow2(d.h))return out;
+  const low=e.name.toLowerCase();
+  if((assetIndex().byMipStem.get(mipStem(low))||[]).some(x=>x.name.toLowerCase()!==low))return out;
   for(let n=1;Math.min(d.w>>n,d.h>>n)>=1;n++){
     const x=nameSlot(tgaMipName(e,n)).own;
     const xd=x&&dimsOfEntry(x);
@@ -4221,6 +4274,7 @@ async function generateMips(list,opt){
         if(i>=at&&x.name.toLowerCase().startsWith(stemLow+"-mip")&&MIP_NAME_RE.test(x.name))at=i+1;
       });
       for(const f of p.writes){
+        if(state.entries.some(x=>x.name.toLowerCase()===f.name.toLowerCase()))continue;
         const ne={name:f.name,size:f.bytes.length,offset:null,data:f.bytes,id:nextId++};
         probeInfo(ne);
         state.entries.splice(at++,0,ne);
@@ -4566,9 +4620,11 @@ function renderChrome(){
   }else $("footSel").textContent="";
   $("btnSave").title=(BRIDGE&&state.saveId!=null&&autosaveOn())?"Autosave is on · changes save automatically":"";
   if(BRIDGE&&state.saveId!=null&&state.dirty&&autosaveOn()&&!autosaveTimer){
-    autosaveTimer=setTimeout(()=>{
+    autosaveTimer=setTimeout(function tick(){
+      /* a batch holds the entries: try again once it is done, and keep the
+         timer set meanwhile so nothing arms a second one */
+      if(batchBusy()){autosaveTimer=setTimeout(tick,1500);return;}
       autosaveTimer=0;
-      if(batchBusy())return;       /* the batch's refreshAll arms it again */
       if(state.dirty&&autosaveOn()&&BRIDGE&&state.saveId!=null)saveArchive(false,true);
     },1500);
   }
@@ -6289,6 +6345,31 @@ document.querySelector("#colHead").addEventListener("click",ev=>{
   else{state.sortKey=k;state.sortDir=1;}
   renderRows();
 });
+/* A renamed texture takes its mip files along, or the game would put them
+   on the stock texture of the old name. A level that cannot follow (the
+   name would be too long or is taken, the new name shares its stem with
+   another texture, or the file is no longer a TGA) goes, and every level
+   after it, since the game stops at the first missing one. */
+function followRename(e,oldName,chain){
+  const r={moved:0,removed:0};
+  if(!chain.length||mipStem(e.name).toLowerCase()===mipStem(oldName).toLowerCase())return r;
+  assetIdx=null;
+  const low=e.name.toLowerCase();
+  let keep=e.tkey==="tga"&&e.name.length<=TEX_NAME_MAX
+    &&!(assetIndex().byMipStem.get(mipStem(low))||[]).some(x=>x.name.toLowerCase()!==low);
+  chain.forEach((x,i)=>{
+    const to=keep?tgaMipName(e,i+1):null;
+    if(keep&&to.length<=TGA_MIP_NAME_MAX&&!state.entries.some(y=>y!==x&&y.name.toLowerCase()===to.toLowerCase())){
+      x.name=to;decodeCache.delete(x.id);r.moved++;
+    }else{
+      keep=false;
+      const at=state.entries.indexOf(x);
+      if(at>=0){state.entries.splice(at,1);decodeCache.delete(x.id);state.sel.delete(x.id);r.removed++;}
+    }
+  });
+  assetIdx=null;
+  return r;
+}
 function beginRename(id){
   if(viewingRef()){toast("Linked VPPs are read-only",true);return;}
   const e=byId(id);if(!e)return;
@@ -6309,7 +6390,13 @@ function beginRename(id){
       const nv=inp.value.trim();
       if(nv&&nv!==old){
         if(state.entries.some(x=>x!==e&&x.name.toLowerCase()===nv.toLowerCase()))toast("Another entry already uses that name.",true);
-        else{pushUndo();e.name=nv;state.dirty=true;decodeCache.delete(e.id);probeInfo(e);}
+        else{
+          const chain=ownMipChain(e);
+          pushUndo();e.name=nv;state.dirty=true;decodeCache.delete(e.id);probeInfo(e);
+          const f=followRename(e,old,chain);
+          if(f.moved||f.removed)toast("Renamed"+(f.moved?" · "+plural(f.moved,"mip file")+" renamed to match":"")
+            +(f.removed?" · "+plural(f.removed,"mip file")+" removed, since "+(f.moved?"they":"it")+" could not follow":""));
+        }
       }
     }
     refreshAll();
@@ -6599,6 +6686,7 @@ let deferredInstall=null;
       const files=[];
       for(const h of params.files){try{files.push(await h.getFile());}catch(_){}}
       const vpp=files.find(f=>/\.vpp$/i.test(f.name));
+      /* loadArchive turns it down while a batch runs; addFiles waits one out */
       if(vpp)loadArchive(vpp.name,await vpp.arrayBuffer());
       const rest=files.filter(f=>f!==vpp);
       if(rest.length)addFiles(rest);

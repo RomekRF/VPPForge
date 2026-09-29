@@ -56,7 +56,8 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   exactly as they are. A mip that no longer looks like its texture is only
   replaced if you say so, and a hand-tuned one is never flagged. When you
   edit a stock texture, its stock mips are made fresh in your VPP, so the
-  old art never shows at a distance.
+  old art never shows at a distance. Deleting, renaming or resizing a
+  texture takes its mip files along.
 - VPP checks flag texture names longer than 31 characters. The game keeps
   texture names in 32 bytes, so a longer one loads wrong or not at all.
 - Extract opens the native Windows folder picker and unpacks straight
