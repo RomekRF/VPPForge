@@ -948,7 +948,7 @@ function decodeDds(d){
       if(rgba[o+3]<255)hasAlpha=true;
     }
   }
-  return {width,height,rgba,fmtName,codec,mips,hasAlpha};
+  return {width,height,rgba,fmtName,codec,bits:bitCount,mips,hasAlpha};
 }
 
 /* ---- VF · Volition Font (spec: rf-reversed/vf_format.h) ---- */
@@ -3264,15 +3264,42 @@ function dxtAlphaBlock(block,dest,off){
 /* levels[0] is the full-size image; anything after it is a mipmap, smallest
    last. One level writes exactly the file the single-level encoder always
    wrote, so converted textures are unchanged. */
+/* Block data for a run of levels, with no header: the mipmapper appends
+   this to a file's own base level so the full-size image is never
+   recompressed, and encodeDdsLevels puts a header in front of it. */
+const dxtLevelBytes=(l,blockSize)=>(((l.w+3)>>2)*((l.h+3)>>2))*blockSize;
+function dxtEncodeLevels(levels,wantDXT5){
+  const blockSize=wantDXT5?16:8;
+  let total=0;
+  for(const l of levels)total+=dxtLevelBytes(l,blockSize);
+  const out=new Uint8Array(total);
+  const block=new Uint8Array(64);
+  let dest=0;
+  for(const l of levels){
+    const bw=(l.w+3)>>2,bh=(l.h+3)>>2,px=l.px;
+    for(let by=0;by<bh;by++)for(let bx=0;bx<bw;bx++){
+      for(let py=0;py<4;py++){
+        const sy=Math.min(by*4+py,l.h-1);
+        for(let pxi=0;pxi<4;pxi++){
+          const sx=Math.min(bx*4+pxi,l.w-1);
+          const sp=(sy*l.w+sx)*4,d=(py*4+pxi)*4;
+          block[d]=px[sp];block[d+1]=px[sp+1];block[d+2]=px[sp+2];block[d+3]=px[sp+3];
+        }
+      }
+      if(wantDXT5){dxtAlphaBlock(block,out,dest);dxtColorBlock(block,out,dest+8);dest+=16;}
+      else{dxtColorBlock(block,out,dest);dest+=8;}
+    }
+  }
+  return out;
+}
 function encodeDdsLevels(levels,wantDXT5){
   const w=levels[0].w,h=levels[0].h;
   if(w<4||h<4)throw new Error("smaller than 4×4");
   const blockSize=wantDXT5?16:8;
-  const bytesOf=l=>(((l.w+3)>>2)*((l.h+3)>>2))*blockSize;
+  const bytesOf=l=>dxtLevelBytes(l,blockSize);
   const many=levels.length>1;
-  let total=0;
-  for(const l of levels)total+=bytesOf(l);
-  const out=new Uint8Array(128+total);
+  const data=dxtEncodeLevels(levels,wantDXT5);
+  const out=new Uint8Array(128+data.length);
   const hv=new DataView(out.buffer);
   hv.setUint32(0,0x20534444,true);
   hv.setUint32(4,124,true);
@@ -3285,23 +3312,7 @@ function encodeDdsLevels(levels,wantDXT5){
   hv.setUint32(80,0x04,true);
   out[84]=0x44;out[85]=0x58;out[86]=0x54;out[87]=wantDXT5?0x35:0x31;
   hv.setUint32(108,0x1000|(many?0x8|0x400000:0),true);
-  const block=new Uint8Array(64);
-  let dest=128;
-  for(const l of levels){
-    const bw=(l.w+3)>>2,bh=(l.h+3)>>2,px=l.px;
-    for(let by=0;by<bh;by++)for(let bx=0;bx<bw;bx++){
-      for(let py=0;py<4;py++){
-        const sy=Math.min(by*4+py,l.h-1);
-        for(let pxi=0;pxi<4;pxi++){
-          const sx=Math.min(bx*4+pxi,l.w-1);
-          const s=(sy*l.w+sx)*4,d=(py*4+pxi)*4;
-          block[d]=px[s];block[d+1]=px[s+1];block[d+2]=px[s+2];block[d+3]=px[s+3];
-        }
-      }
-      if(wantDXT5){dxtAlphaBlock(block,out,dest);dxtColorBlock(block,out,dest+8);dest+=16;}
-      else{dxtColorBlock(block,out,dest);dest+=8;}
-    }
-  }
+  out.set(data,128);
   return out;
 }
 function encodeDds(w,h,px,wantDXT5){return encodeDdsLevels([{w,h,px}],wantDXT5);}
@@ -3510,6 +3521,25 @@ function canvasToBytes(cv,mime,quality){
     },mime,quality);
   });
 }
+/* Successive halves of an image, down to 1×1, the way a mip chain runs. */
+function mipChain(w,h,px,smooth){
+  const levels=[{w,h,px}];
+  let lp=px,lw=w,lh=h;
+  while(lw>1||lh>1){
+    const nw=Math.max(1,lw>>1),nh=Math.max(1,lh>>1);
+    lp=resamplePixels(lp,lw,lh,nw,nh,smooth!==false);
+    lw=nw;lh=nh;
+    levels.push({w:lw,h:lh,px:lp});
+  }
+  return levels;
+}
+const fullMipCount=(w,h)=>{let n=1;while(w>1||h>1){w=Math.max(1,w>>1);h=Math.max(1,h>>1);n++;}return n;};
+const ddsIsRaw=img=>img.codec==="rgba8"||img.codec==="bgra8"||img.codec==="masked"||img.codec==="lum";
+/* write a chain back in the flavour the file already had */
+function encodeDdsLike(img,levels){
+  return ddsIsRaw(img)?encodeDdsRaw(levels)
+    :encodeDdsLevels(levels,img.hasAlpha||img.codec==="bc2"||img.codec==="bc3");
+}
 async function resizeEntry(e,sizeFor,opt){
   const img=await pixelsOf(e);
   const {w,h}=sizeFor(img.width,img.height);
@@ -3523,21 +3553,10 @@ async function resizeEntry(e,sizeFor,opt){
   else if(e.tkey==="dds"){
     const raw=img.codec==="rgba8"||img.codec==="bgra8"||img.codec==="masked"||img.codec==="lum";
     if(!raw&&(w%4||h%4))throw new Error(w+" × "+h+" · DDS needs multiples of 4");
-    const levels=[{w,h,px}];
     /* a texture that shipped with mipmaps gets a fresh chain, since dropping
        them would make it shimmer in the distance in game */
-    if(img.mips>1){
-      let lp=px,lw=w,lh=h;
-      while(lw>1||lh>1){
-        const nw=Math.max(1,lw>>1),nh=Math.max(1,lh>>1);
-        lp=resamplePixels(lp,lw,lh,nw,nh,true);lw=nw;lh=nh;
-        levels.push({w:lw,h:lh,px:lp});
-      }
-    }
-    /* DXT1 only where the source was DXT1 and nothing is see-through:
-       BC2/BC3 carry an alpha channel whether or not it is used */
-    bytes=raw?encodeDdsRaw(levels)
-             :encodeDdsLevels(levels,img.hasAlpha||img.codec==="bc2"||img.codec==="bc3");
+    const levels=img.mips>1?mipChain(w,h,px,true):[{w,h,px}];
+    bytes=encodeDdsLike(img,levels);
   }
   else bytes=await canvasToBytes(canvasOfPixels(w,h,px),
     e.tkey==="png"?"image/png":"image/jpeg",
@@ -3586,6 +3605,102 @@ async function applyResize(list,sizeFor,opt){
   else if(same)toast(same===1?"Already that size":"All "+same+" already that size");
   if(failed.length)
     openPop('<h3>Not resized</h3><ul>'+failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")+"</ul>",menuBtn("tools"));
+}
+/* ---- Mipmaps ---------------------------------------------------------
+   Smaller copies of a texture stored alongside the full-size one, which the
+   renderer picks from by distance. Without them a wall shimmers as you walk
+   away from it. Only DDS carries a chain inside the file; TGA, PNG and JPEG
+   hold one image each, so they are converted to DDS first. */
+const MIPPABLE=new Set(["dds"]);
+const mipsOf=e=>{const m=/· (\d+) mips/.exec(e.info||"");return m?+m[1]:1;};
+/* a chain short of 1×1 still gets rebuilt, so "has some" is not "done" */
+const needsMips=e=>{const d=dimsOfEntry(e);return !d||mipsOf(e)<fullMipCount(d.w,d.h);};
+/* Keep the file's own base level and append the smaller ones. Re-encoding
+   the full-size image would cost a generation of DXT quality for nothing. */
+function ddsAppendMips(bytes,img,smooth){
+  const dv=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+  const isDx10=dv.getUint32(84,true)===0x30315844;
+  const start=128+(isDx10?20:0);
+  const blockSize=img.codec==="bc1"?8:16;
+  const baseLen=dxtLevelBytes({w:img.width,h:img.height},blockSize);
+  if(start+baseLen>bytes.length)throw new Error("DDS data truncated");
+  const tail=dxtEncodeLevels(mipChain(img.width,img.height,img.rgba,smooth).slice(1),blockSize===16);
+  const out=new Uint8Array(start+baseLen+tail.length);
+  out.set(bytes.subarray(0,start+baseLen),0);
+  out.set(tail,start+baseLen);
+  const hv=new DataView(out.buffer);
+  const levels=fullMipCount(img.width,img.height);
+  hv.setUint32(8,dv.getUint32(8,true)|0x20000,true);   /* DDSD_MIPMAPCOUNT */
+  hv.setUint32(28,levels,true);
+  hv.setUint32(108,dv.getUint32(108,true)|0x8|0x400000,true); /* COMPLEX|MIPMAP */
+  return out;
+}
+async function mipEntry(e,opt){
+  const img=await pixelsOf(e);
+  const want=fullMipCount(img.width,img.height);
+  if((img.mips||1)>=want)return {already:true,levels:img.mips};
+  if(ddsIsRaw(img)){
+    /* only the 32-bit layout has a writer here; changing a 16-bit file's
+       format behind the user's back is not a fair trade for mipmaps */
+    if(img.bits!==32)throw new Error(img.fmtName+" · convert it to DXT first");
+    return {bytes:encodeDdsRaw(mipChain(img.width,img.height,img.rgba,opt.smooth)),
+            levels:want,was:img.mips||1};
+  }
+  if(img.width%4||img.height%4)
+    throw new Error(img.width+" × "+img.height+" · DXT needs multiples of 4");
+  return {bytes:ddsAppendMips(entryData(e),img,opt.smooth),levels:want,was:img.mips||1};
+}
+async function generateMips(list,opt){
+  opt=opt||{smooth:true};
+  const skipped=list.filter(e=>!MIPPABLE.has(e.tkey)).length;
+  list=list.filter(e=>MIPPABLE.has(e.tkey)&&e.refId==null);
+  if(!list.length){
+    toast(skipped?"Only DDS files hold mipmaps · convert these to DDS first"
+                 :"No DDS textures here",true);
+    return;
+  }
+  if(generateMips._busy)return;
+  generateMips._busy=true;
+  const prog=progressOverlay(list.length===1?"Building mipmaps":"Building mipmaps for "+list.length+" textures");
+  const pre=snapEntries();
+  let ok=0,already=0,grew=0,levels=0;
+  const failed=[],newSel=new Set();
+  try{
+    for(let i=0;i<list.length;i++){
+      const e=list[i];
+      prog.set(i/list.length,(i+1)+" of "+list.length+" · "+e.name);
+      await prog.paint();
+      try{
+        const r=await mipEntry(e,opt);
+        if(r.already){already++;continue;}
+        grew+=r.bytes.length-e.size;
+        levels=Math.max(levels,r.levels);
+        e.data=r.bytes;e.size=r.bytes.length;e.offset=null;
+        decodeCache.delete(e.id);
+        probeInfo(e);
+        ok++;newSel.add(e.id);
+      }catch(err){failed.push(e.name+" ("+err.message+")");}
+    }
+    prog.set(1,"done");
+    await prog.paint();
+  }finally{
+    prog.done();
+    generateMips._busy=false;
+  }
+  if(ok){
+    pushUndoSnap(pre);
+    state.dirty=true;
+    state.sel=newSel;
+    state.anchor=newSel.size?[...newSel][0]:null;
+    refreshAll();
+    toast("Mipmapped "+plural(ok,"texture")+" · up to "+levels+" levels · "+fmtBytes(grew)+" larger"
+      +(already?" · "+already+" already had them":"")
+      +(skipped?" · "+skipped+" not DDS":"")
+      +(failed.length?" · "+failed.length+" failed":"")+" · Ctrl S to save",failed.length>0);
+  }else if(failed.length)toast("No mipmaps built · "+plural(failed.length,"texture")+" failed",true);
+  else if(already)toast(already===1?"This one already has mipmaps":"All "+already+" already have mipmaps");
+  if(failed.length)
+    openPop('<h3>No mipmaps built</h3><ul>'+failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")+"</ul>",menuBtn("tools"));
 }
 function showResizeDialog(list,opts){
   list=(list||[]).filter(e=>e&&RESIZABLE.has(e.tkey)&&e.refId==null);
@@ -4011,6 +4126,7 @@ const IC={
   extract:'<svg class="i" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>',
   expand:'<svg class="i" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>',
   png:'<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4 3 2.5L16.5 11l4 4.5"/></svg>',
+  mip:'<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="11" height="11" rx="1.5"/><rect x="16" y="4" width="5.5" height="5.5" rx="1"/><rect x="16" y="11.5" width="3" height="3" rx="0.7"/><path d="M4.5 19.5h8"/></svg>',
   resize:'<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="10" height="10" rx="1.5"/><path d="M9 20.5h11.5V9M20.5 9L14 15.5M20.5 9h-4M20.5 9v4"/></svg>',
   rename:'<svg class="i" viewBox="0 0 24 24"><path d="M4 20l4-1L20 7.5a1.9 1.9 0 00-2.7-2.7L5 16.8 4 20z"/></svg>',
   remove:'<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 13h8l1-13"/></svg>',
@@ -4083,6 +4199,11 @@ function renderContent(body,e,big,acts){
           ?('<b>'+img.width+' × '+img.height+'</b> · '+img.fmtName+(img.hasAlpha?' · alpha':'')+' · needs Alpine Faction 1.4')
           :('<b>'+img.width+' × '+img.height+'</b> · '+img.bpp+'-bit'+(img.imgType>=9?' · RLE':'')+(img.hasAlpha?' · alpha':''));
         renderImage(body,e,img,meta,big);
+        if(MIPPABLE.has(k)&&e.refId==null)
+          addAct(IC.mip,needsMips(e)?(img.mips>1?"Finish the mipmap chain ("+img.mips+" of "
+                   +fullMipCount(img.width,img.height)+" levels)":"Build mipmaps")
+                   :"Mipmaps complete ("+img.mips+" levels)",
+                 ()=>generateMips([e]));
         if(RESIZABLE.has(k)&&e.refId==null)
           addAct(IC.resize,"Resize this image",()=>showResizeDialog([e]));
         addAct(IC.png,"Export as PNG",()=>exportCanvasPng(body.querySelector("canvas"),baseName(e.name)+".png"));
@@ -5025,6 +5146,13 @@ function contextItems(){
     ...((()=>{const im=[...state.sel].map(byId).filter(x=>x&&RESIZABLE.has(x.tkey));
       return im.length?[{label:im.length===1?"Resize image…":"Resize "+im.length+" images…",
         icon:IC.resize,fn:()=>showResizeDialog(im)}]:[];})()),
+    ...((()=>{const dd=[...state.sel].map(byId).filter(x=>x&&MIPPABLE.has(x.tkey));
+      if(!dd.length)return [];
+      const need=dd.filter(needsMips).length;
+      return [{label:!need?(dd.length===1?"Mipmaps complete":"Mipmaps complete on all "+dd.length)
+                     :dd.length===1?"Build mipmaps"
+                     :"Build mipmaps for "+plural(need,"texture")+(need<dd.length?" of "+dd.length:""),
+               icon:IC.mip,off:!need,fn:()=>generateMips(dd)}];})()),
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
     {label:one?"Duplicate":"Duplicate "+n+" files",k:"Ctrl D",fn:duplicateSelected},
     {label:one?"Copy name":"Copy "+n+" names",fn:copySelectedNames},
@@ -5306,6 +5434,18 @@ function menuItems(which){
         return [{label:sel.length?"Resize "+plural(sel.length,"selected image")+"…"
                                  :"Resize all "+plural(all.length,"image")+"…",
                  icon:IC.resize,off:!pick.length,fn:()=>showResizeDialog(pick)}];
+      })()),
+      ...((()=>{
+        /* the selection when it holds DDS, otherwise every DDS in the VPP */
+        const sel=[...state.sel].map(byId).filter(x=>x&&MIPPABLE.has(x.tkey));
+        const all=state.entries.filter(x=>MIPPABLE.has(x.tkey));
+        const pick=sel.length?sel:all;
+        const need=pick.filter(needsMips).length;
+        return [{label:sel.length?"Build mipmaps for "+plural(sel.length,"selected texture")
+                                 :"Build mipmaps for all "+plural(all.length,"DDS texture"),
+                 icon:IC.mip,off:!need,
+                 k:pick.length?(need?need+" need them":"all done"):"",
+                 fn:()=>generateMips(pick)}];
       })()),
       {label:"Export folders…",off:!BRIDGE,fn:showExportFolders},
       "-",

@@ -38,6 +38,11 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   the format it already had, so meshes and levels keep finding it, DDS
   mipmap chains are rebuilt, and the colour under transparent pixels
   survives the trip.
+- Build mipmaps for one DDS texture, a selection, or every DDS in the VPP.
+  The full-size image is kept byte for byte and only the smaller levels are
+  added, so there is no second round of DXT loss. Textures that already
+  have a complete chain are left alone, and a chain that stops short is
+  finished.
 - Extract opens the native Windows folder picker and unpacks straight
   into the folder you choose.
 
