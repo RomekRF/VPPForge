@@ -222,14 +222,15 @@ body.loose-file #prevBody{padding:0 10px 10px}
 .viewer-bar{display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap; min-height:22px}
 
 #prevActs .btn.dim,#lbCtl .btn.dim{opacity:.45}
-#rsdlg input[type=number], #rsdlg select{height:24px; background:var(--surface-2); color:var(--text);
+#rsdlg input[type=number], #rsdlg select, #mpdlg select{height:24px; background:var(--surface-2); color:var(--text);
   border:1px solid var(--border-2); border-radius:var(--r-s); padding:0 6px; font:400 12px var(--mono)}
-#rsdlg select{font-family:var(--sans)}
-#rsdlg input[type=number]:focus, #rsdlg select:focus{outline:none; border-color:var(--accent)}
-#rsdlg label{display:inline-flex; align-items:center; gap:5px; font:400 12px var(--sans); color:var(--text-2)}
-#rsdlg .rsrow{display:flex; align-items:center; gap:10px; padding:5px 0}
-#rsdlg .rsrow > .lb{width:96px; flex:none; font:500 12px var(--sans); color:var(--text)}
-#rsdlg .rsrow > .in{flex:1; min-width:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+#rsdlg select, #mpdlg select{font-family:var(--sans)}
+#rsdlg input[type=number]:focus, #rsdlg select:focus, #mpdlg select:focus{outline:none; border-color:var(--accent)}
+#mpdlg select:disabled{opacity:.5}
+#rsdlg label, #mpdlg label{display:inline-flex; align-items:center; gap:5px; font:400 12px var(--sans); color:var(--text-2)}
+#rsdlg .rsrow, #mpdlg .rsrow{display:flex; align-items:center; gap:10px; padding:5px 0}
+#rsdlg .rsrow > .lb, #mpdlg .rsrow > .lb{width:96px; flex:none; font:500 12px var(--sans); color:var(--text)}
+#rsdlg .rsrow > .in, #mpdlg .rsrow > .in{flex:1; min-width:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
 .vinfo{font:400 11px var(--sans); color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .vinfo b{color:var(--text); font-weight:600}
 .vinfo .warn{color:var(--warn)}
@@ -3467,6 +3468,54 @@ function dxtColorBlock(block,dest,off){
   dest[off+4]=lo&0xFF;dest[off+5]=(lo>>8)&0xFF;
   dest[off+6]=hi&0xFF;dest[off+7]=(hi>>8)&0xFF;
 }
+/* DXT1 with see-through pixels: the three-colour mode (first colour not
+   above the second), where index 3 is transparent black. Pixels under half
+   alpha take it; the rest get the nearest of the other three, with the
+   endpoints taken from the opaque pixels only. */
+function dxtColorBlock1a(block,dest,off){
+  let minR=255,minG=255,minB=255,maxR=0,maxG=0,maxB=0,any=false;
+  for(let i=0;i<16;i++){
+    if(block[i*4+3]<128)continue;
+    any=true;
+    const r=block[i*4],g=block[i*4+1],b=block[i*4+2];
+    if(r<minR)minR=r; if(g<minG)minG=g; if(b<minB)minB=b;
+    if(r>maxR)maxR=r; if(g>maxG)maxG=g; if(b>maxB)maxB=b;
+  }
+  let c0=0,c1=0;
+  if(any){
+    const iR=(maxR-minR)>>4,iG=(maxG-minG)>>4,iB=(maxB-minB)>>4;
+    minR+=iR;minG+=iG;minB+=iB;maxR-=iR;maxG-=iG;maxB-=iB;
+    c0=dxtQuantize565(minR,minG,minB);c1=dxtQuantize565(maxR,maxG,maxB);
+    if(c0>c1){const t=c0;c0=c1;c1=t;}
+  }
+  const [r0,g0,b0]=dxtUnpack565(c0),[r1,g1,b1]=dxtUnpack565(c1);
+  const palR=[r0,r1,(r0+r1)>>1],palG=[g0,g1,(g0+g1)>>1],palB=[b0,b1,(b0+b1)>>1];
+  let lo=0,hi=0;
+  for(let i=0;i<16;i++){
+    let bj=3;
+    if(block[i*4+3]>=128){
+      const r=block[i*4],g=block[i*4+1],b=block[i*4+2];
+      let best=Infinity;
+      for(let j=0;j<3;j++){
+        const dr=r-palR[j],dg=g-palG[j],db=b-palB[j];
+        const d=dr*dr+dg*dg+db*db;
+        if(d<best){best=d;bj=j;}
+      }
+    }
+    if(i<8)lo|=bj<<(i*2); else hi|=bj<<((i-8)*2);
+  }
+  dest[off]=c0&0xFF;dest[off+1]=(c0>>8)&0xFF;
+  dest[off+2]=c1&0xFF;dest[off+3]=(c1>>8)&0xFF;
+  dest[off+4]=lo&0xFF;dest[off+5]=(lo>>8)&0xFF;
+  dest[off+6]=hi&0xFF;dest[off+7]=(hi>>8)&0xFF;
+}
+/* DXT3: sixteen 4-bit alpha values, two to a byte, low nibble first */
+function dxt3AlphaBlock(block,dest,off){
+  for(let i=0;i<8;i++){
+    const a=Math.round(block[i*8+3]/17),b=Math.round(block[i*8+7]/17);
+    dest[off+i]=a|(b<<4);
+  }
+}
 function dxtAlphaBlock(block,dest,off){
   let minA=255,maxA=0;
   for(let i=0;i<16;i++){const a=block[i*4+3];if(a<minA)minA=a;if(a>maxA)maxA=a;}
@@ -3493,8 +3542,14 @@ function dxtAlphaBlock(block,dest,off){
    this to a file's own base level so the full-size image is never
    recompressed, and encodeDdsLevels puts a header in front of it. */
 const dxtLevelBytes=(l,blockSize)=>(((l.w+3)>>2)*((l.h+3)>>2))*blockSize;
-function dxtEncodeLevels(levels,wantDXT5){
-  const blockSize=wantDXT5?16:8;
+/* the block kind: "bc1" opaque DXT1, "bc1a" DXT1 with see-through pixels,
+   "bc2" DXT3, "bc3" DXT5 (true and false mean DXT5 and DXT1) */
+const dxtMode=m=>m===true?"bc3":m===false||m==null?"bc1":m;
+/* the kind a decoded DDS is written back as, so it keeps its own format */
+const dxtModeOf=img=>img.codec==="bc1"?(img.hasAlpha?"bc1a":"bc1"):img.codec==="bc2"?"bc2":"bc3";
+function dxtEncodeLevels(levels,mode){
+  mode=dxtMode(mode);
+  const blockSize=mode==="bc1"||mode==="bc1a"?8:16;
   let total=0;
   for(const l of levels)total+=dxtLevelBytes(l,blockSize);
   const out=new Uint8Array(total);
@@ -3511,19 +3566,26 @@ function dxtEncodeLevels(levels,wantDXT5){
           block[d]=px[sp];block[d+1]=px[sp+1];block[d+2]=px[sp+2];block[d+3]=px[sp+3];
         }
       }
-      if(wantDXT5){dxtAlphaBlock(block,out,dest);dxtColorBlock(block,out,dest+8);dest+=16;}
+      if(mode==="bc3"){dxtAlphaBlock(block,out,dest);dxtColorBlock(block,out,dest+8);dest+=16;}
+      else if(mode==="bc2"){dxt3AlphaBlock(block,out,dest);dxtColorBlock(block,out,dest+8);dest+=16;}
+      else if(mode==="bc1a"){
+        let cut=false;
+        for(let q=3;q<64;q+=4)if(block[q]<128){cut=true;break;}
+        (cut?dxtColorBlock1a:dxtColorBlock)(block,out,dest);dest+=8;
+      }
       else{dxtColorBlock(block,out,dest);dest+=8;}
     }
   }
   return out;
 }
-function encodeDdsLevels(levels,wantDXT5){
+function encodeDdsLevels(levels,mode){
+  mode=dxtMode(mode);
   const w=levels[0].w,h=levels[0].h;
   if(w<4||h<4)throw new Error("smaller than 4×4");
-  const blockSize=wantDXT5?16:8;
+  const blockSize=mode==="bc1"||mode==="bc1a"?8:16;
   const bytesOf=l=>dxtLevelBytes(l,blockSize);
   const many=levels.length>1;
-  const data=dxtEncodeLevels(levels,wantDXT5);
+  const data=dxtEncodeLevels(levels,mode);
   const out=new Uint8Array(128+data.length);
   const hv=new DataView(out.buffer);
   hv.setUint32(0,0x20534444,true);
@@ -3535,7 +3597,7 @@ function encodeDdsLevels(levels,wantDXT5){
   if(many)hv.setUint32(28,levels.length,true);
   hv.setUint32(76,32,true);
   hv.setUint32(80,0x04,true);
-  out[84]=0x44;out[85]=0x58;out[86]=0x54;out[87]=wantDXT5?0x35:0x31;
+  out[84]=0x44;out[85]=0x58;out[86]=0x54;out[87]=mode==="bc3"?0x35:mode==="bc2"?0x33:0x31;
   hv.setUint32(108,0x1000|(many?0x8|0x400000:0),true);
   out.set(data,128);
   return out;
@@ -3578,7 +3640,7 @@ function encodeDdsRaw(levels){
    and autosave wait meanwhile: the tool holds the entries it is changing,
    and an undo, a delete, a save or another VPP opened halfway would pull
    them out from under it (TGA to DDS would even overwrite the wrong file). */
-const batchBusy=()=>!!(generateMips._busy||applyResize._busy||tgaEntriesToDds._busy);
+const batchBusy=()=>!!(generateMips._busy||applyResize._busy||imagesToDds._busy);
 /* run fn now, or once the running batch is done (files read in the
    background land after it, not in the middle of it) */
 function whenIdle(fn){const go=()=>{if(batchBusy())setTimeout(go,150);else fn();};go();}
@@ -3601,17 +3663,27 @@ function progressOverlay(title){
     done(){ov.remove();},
   };
 }
-async function tgaEntriesToDds(list){
-  /* a mip level is removed with its base below, so it is never converted
-     on its own into a DDS the game would never read */
-  list=list.filter(e=>e.tkey==="tga"&&!mipLevelOf(e));
-  if(!list.length){toast("No TGA files to convert",true);return;}
-  if(tgaEntriesToDds._busy)return;
-  tgaEntriesToDds._busy=true;
-  const prog=progressOverlay("Converting TGA → DDS");
+/* TGA and PNG to DDS: DXT1 when every pixel is opaque, DXT5 otherwise. The
+   DDS takes the file's place under the same name, and the game prefers a
+   DDS to either anyway. opt.mips builds a chain into each DDS down to
+   opt.minSize. A TGA's own mip files go into it where they still look like
+   a smaller copy of the level above (a hand-tuned level stays); the rest
+   are made fresh. */
+const TO_DDS=new Set(["tga","png"]);
+/* a TGA mip level goes with its base, so it is never converted on its own
+   into a DDS the game would never read */
+const toDdsOk=e=>!!e&&TO_DDS.has(e.tkey)&&!(e.tkey==="tga"&&mipLevelOf(e));
+const kindsOf=list=>["tga","png"].filter(k=>list.some(e=>e.tkey===k)).map(k=>k.toUpperCase()).join(" and ");
+async function imagesToDds(list,opt){
+  opt=opt||{mips:false};
+  list=list.filter(toDdsOk);
+  if(!list.length){toast("No TGA or PNG files to convert",true);return;}
+  if(imagesToDds._busy)return;
+  imagesToDds._busy=true;
+  const prog=progressOverlay("Converting "+kindsOf(list)+" → DDS");
   const pre=snapEntries(),ents=state.entries;
-  let ok=0,dxt1=0,dxt5=0,deadMips=0;
-  const failed=[],failedEntries=[],newSel=new Set();
+  let ok=0,dxt1=0,dxt5=0,deadMips=0,merged=0,chained=0;
+  const failed=[],failedEntries=[],newSel=new Set(),done=[];
   try{
     for(let i=0;i<list.length;i++){
       if(state.entries!==ents)break;       /* another file list was put in place */
@@ -3621,15 +3693,38 @@ async function tgaEntriesToDds(list){
       try{
         if(!state.entries.includes(e))continue;
         const chain=ownMipChain(e);
-        const dec=decodeTga(entryData(e));
+        const dec=e.tkey==="png"?await decodeBitmap(e):decodeTga(entryData(e));
+        if(!state.entries.includes(e))continue;
         /* DXT is 4×4 blocks; D3D requires multiples of 4 or texture creation
            fails in-game (D3D11 fatal error in Alpine/Dash Faction) */
         if(dec.width%4||dec.height%4)
           throw new Error(dec.width+"×"+dec.height+" · needs multiples of 4");
-        const px=dec.rgba;
+        const levels=[{w:dec.width,h:dec.height,px:dec.rgba}];
+        if(opt.mips){
+          const want=mipCountTo(dec.width,dec.height,opt.minSize||1);
+          let own=true,kept=0;
+          for(let n=1;n<want;n++){
+            const p=levels[n-1],{w,h}=mipDims(dec.width,dec.height,n);
+            let px=resamplePixels(p.px,p.w,p.h,w,h,opt.smooth!==false);
+            const x=own?chain[n-1]:null;
+            if(x){
+              try{
+                const t=decodeTga(entryData(x));
+                if(t.width===w&&t.height===h&&pixelDiff(px,t.rgba)<=MIP_STALE){px=t.rgba;kept++;}
+                else own=false;
+              }catch(_){own=false;}
+            }else own=false;
+            levels.push({w,h,px});
+          }
+          merged+=kept;
+          if(levels.length>1)chained++;
+        }
         let hasA=false;
-        for(let j=3;j<px.length;j+=4){if(px[j]<255){hasA=true;break;}}
-        const dds=encodeDds(dec.width,dec.height,px,hasA);
+        for(const l of levels){
+          for(let j=3;j<l.px.length;j+=4){if(l.px[j]<255){hasA=true;break;}}
+          if(hasA)break;
+        }
+        const dds=encodeDdsLevels(levels,hasA);
         const base=e.name.slice(0,e.name.lastIndexOf("."));
         const nm=base+".dds",low=nm.toLowerCase();
         const dup=state.entries.findIndex(x=>x!==e&&x.name.toLowerCase()===low);
@@ -3642,14 +3737,14 @@ async function tgaEntriesToDds(list){
            are never looked at again */
         for(const x of chain){const at=state.entries.indexOf(x);if(at>=0){state.entries.splice(at,1);decodeCache.delete(x.id);deadMips++;}}
         if(hasA)dxt5++;else dxt1++;
-        ok++;newSel.add(ne.id);
+        ok++;newSel.add(ne.id);done.push(e);
       }catch(err){failed.push(e.name+" ("+err.message+")");failedEntries.push(e);}
     }
     prog.set(1,"done");
     await prog.paint();
   }finally{
     prog.done();
-    tgaEntriesToDds._busy=false;
+    imagesToDds._busy=false;
   }
   if(ok&&state.entries===ents){
     pushUndoSnap(pre);
@@ -3657,19 +3752,22 @@ async function tgaEntriesToDds(list){
     state.sel=newSel;
     state.anchor=newSel.size?[...newSel][0]:null;
     refreshAll();
-    toast("Replaced "+ok+" TGA with DDS · "+dxt1+" DXT1, "+dxt5+" DXT5"
-      +(deadMips?" · "+plural(deadMips,"TGA mip file")+" removed, since the game reads the DDS instead":"")
-      +(failed.length?" · "+failed.length+" kept as TGA":"")+" · Ctrl S to save",failed.length>0);
-  }else if(failed.length)toast("Nothing converted · "+failed.length+" TGA kept",true);
+    toast("Replaced "+ok+" "+kindsOf(done)+" with DDS · "+dxt1+" DXT1, "+dxt5+" DXT5"
+      +(chained?" · mipmaps down to "+mipMinLabel(opt.minSize||1)+" inside":"")
+      +(merged?" · "+plural(merged,"hand-made level")+" kept":"")
+      +(deadMips?" · "+plural(deadMips,"TGA mip file")+" removed, since "+(chained?"the DDS carries its own levels":"the game reads the DDS instead"):"")
+      +(failed.length?" · "+failed.length+" left as they were":"")+" · Ctrl S to save",failed.length>0);
+  }else if(failed.length)toast("Nothing converted · "+failed.length+" left as they were",true);
   if(failed.length){
-    openPop('<h3>Kept as TGA</h3><ul>'
+    const odd=failedEntries.filter(x=>{const d=dimsOfEntry(x);return d&&(d.w%4||d.h%4);});
+    openPop('<h3>Not converted</h3><ul>'
       +failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")
       +'</ul><div style="padding:4px 10px 8px;color:var(--text-2);font-size:11px;max-width:300px">DXT compression works in 4×4 blocks, and the game\'s renderer rejects DDS textures whose width or height is not a multiple of 4.'
-      +(failedEntries.length?' <button class="btn outline sm" id="popResize" style="margin-top:6px">Resize them to a multiple of 4…</button>':' Resize them first, then convert.')
+      +(odd.length?' <button class="btn outline sm" id="popResize" style="margin-top:6px">Resize them to a multiple of 4…</button>':'')
       +'</div>',
       menuBtn("tools"));
     const rb=$("popResize");
-    if(rb)rb.addEventListener("click",()=>{closePop();showResizeDialog(failedEntries,{round:"4"});});
+    if(rb)rb.addEventListener("click",()=>{closePop();showResizeDialog(odd,{round:"4"});});
   }
 }
 /* ---- Image resizing --------------------------------------------------
@@ -3763,11 +3861,12 @@ function canvasToBytes(cv,mime,quality){
     },mime,quality);
   });
 }
-/* Successive halves of an image, down to 1×1, the way a mip chain runs. */
-function mipChain(w,h,px,smooth){
+/* Successive halves of an image, down to 1×1, the way a mip chain runs,
+   or only the first count levels of it. */
+function mipChain(w,h,px,smooth,count){
   const levels=[{w,h,px}];
   let lp=px,lw=w,lh=h;
-  while(lw>1||lh>1){
+  while((lw>1||lh>1)&&!(count&&levels.length>=count)){
     const nw=Math.max(1,lw>>1),nh=Math.max(1,lh>>1);
     lp=resamplePixels(lp,lw,lh,nw,nh,smooth!==false);
     lw=nw;lh=nh;
@@ -3776,11 +3875,28 @@ function mipChain(w,h,px,smooth){
   return levels;
 }
 const fullMipCount=(w,h)=>{let n=1;while(w>1||h>1){w=Math.max(1,w>>1);h=Math.max(1,h>>1);n++;}return n;};
+/* The levels from the base down to the last one whose shorter side is still
+   at least min; min 1 is the full chain to 1×1. A base already at or under
+   min is a chain of one. */
+const mipCountTo=(w,h,min)=>{
+  if(!(min>1))return fullMipCount(w,h);
+  let n=1;
+  while(Math.min(w>>n,h>>n)>=min)n++;
+  return n;
+};
+/* the size of level n (0 is the base) */
+const mipDims=(w,h,n)=>({w:Math.max(1,w>>n),h:Math.max(1,h>>n)});
+/* Mipmap choices, remembered: the smallest level a DDS chain is built down
+   to, and whether Replace with DDS builds a chain into the new file. */
+const MIP_MIN_SIZES=[1,2,4,8,16,32,64,128];
+const mipMin=()=>{const v=+APP_SETTINGS.mipMin;return MIP_MIN_SIZES.includes(v)?v:1;};
+const ddsMipsOnConvert=()=>(APP_SETTINGS.ddsMips??1)===1;
+const mipMinLabel=v=>v>1?v+" × "+v:"1 × 1";
 const ddsIsRaw=img=>img.codec==="rgba8"||img.codec==="bgra8"||img.codec==="masked"||img.codec==="lum";
 /* write a chain back in the flavour the file already had */
 function encodeDdsLike(img,levels){
   return ddsIsRaw(img)?encodeDdsRaw(levels)
-    :encodeDdsLevels(levels,img.hasAlpha||img.codec==="bc2"||img.codec==="bc3");
+    :encodeDdsLevels(levels,dxtModeOf(img));
 }
 async function resizeEntry(e,sizeFor,opt){
   const img=await pixelsOf(e);
@@ -3796,8 +3912,14 @@ async function resizeEntry(e,sizeFor,opt){
     const raw=img.codec==="rgba8"||img.codec==="bgra8"||img.codec==="masked"||img.codec==="lum";
     if(!raw&&(w%4||h%4))throw new Error(w+" × "+h+" · DDS needs multiples of 4");
     /* a texture that shipped with mipmaps gets a fresh chain, since dropping
-       them would make it shimmer in the distance in game */
-    const levels=img.mips>1?mipChain(w,h,px,true):[{w,h,px}];
+       them would make it shimmer in the distance in game. It stops where the
+       old one did: at the same smallest level, or at 1×1 for a full chain. */
+    let levels=[{w,h,px}];
+    if(img.mips>1){
+      const last=mipDims(img.width,img.height,img.mips-1);
+      const full=img.mips>=fullMipCount(img.width,img.height);
+      levels=mipChain(w,h,px,true,full?0:mipCountTo(w,h,Math.min(last.w,last.h)));
+    }
     bytes=encodeDdsLike(img,levels);
   }
   else bytes=await canvasToBytes(canvasOfPixels(w,h,px),
@@ -3968,8 +4090,10 @@ function tgaMipBlocker(e,w,h,bpp){
    may find nothing to do. done / na: nothing to add. */
 function mipStatus(e){
   if(e.tkey==="dds"){
-    const d=dimsOfEntry(e);
-    const want=d?fullMipCount(d.w,d.h):0,have=mipsOf(e);
+    const d=dimsOfEntry(e),min=mipMin();
+    const want=d?mipCountTo(d.w,d.h,min):0,have=mipsOf(e);
+    if(d&&want===1&&have===1)
+      return {done:true,label:"No mipmaps to add: "+d.w+" × "+d.h+" is already at the smallest level ("+mipMinLabel(min)+")"};
     return !d||have<want?{need:true,label:have>1?"Finish the mipmap chain ("+have+" of "+want+" levels)":"Build mipmaps"}
                         :{done:true,label:"Mipmaps complete ("+have+" levels)"};
   }
@@ -4182,19 +4306,21 @@ function rebuildMipChain(e,chain,smooth){
 const mipsOf=e=>{const m=/· (\d+) mips/.exec(e.info||"");return m?+m[1]:1;};
 /* Keep the file's own base level and append the smaller ones. Re-encoding
    the full-size image would cost a generation of DXT quality for nothing. */
-function ddsAppendMips(bytes,img,smooth){
+function ddsAppendMips(bytes,img,smooth,levels){
   const dv=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
   const isDx10=dv.getUint32(84,true)===0x30315844;
   const start=128+(isDx10?20:0);
   const blockSize=img.codec==="bc1"?8:16;
   const baseLen=dxtLevelBytes({w:img.width,h:img.height},blockSize);
   if(start+baseLen>bytes.length)throw new Error("DDS data truncated");
-  const tail=dxtEncodeLevels(mipChain(img.width,img.height,img.rgba,smooth).slice(1),blockSize===16);
+  levels=levels||fullMipCount(img.width,img.height);
+  /* the new levels in the file's own block kind: DXT3 alpha under a DXT3
+     header, and a DXT1 cutout keeps its holes */
+  const tail=dxtEncodeLevels(mipChain(img.width,img.height,img.rgba,smooth,levels).slice(1),dxtModeOf(img));
   const out=new Uint8Array(start+baseLen+tail.length);
   out.set(bytes.subarray(0,start+baseLen),0);
   out.set(tail,start+baseLen);
   const hv=new DataView(out.buffer);
-  const levels=fullMipCount(img.width,img.height);
   hv.setUint32(8,dv.getUint32(8,true)|0x20000,true);   /* DDSD_MIPMAPCOUNT */
   hv.setUint32(28,levels,true);
   hv.setUint32(108,dv.getUint32(108,true)|0x8|0x400000,true); /* COMPLEX|MIPMAP */
@@ -4202,18 +4328,18 @@ function ddsAppendMips(bytes,img,smooth){
 }
 async function mipEntry(e,opt){
   const img=await pixelsOf(e);
-  const want=fullMipCount(img.width,img.height);
+  const want=mipCountTo(img.width,img.height,opt.minSize??mipMin());
   if((img.mips||1)>=want)return {already:true,levels:img.mips};
   if(ddsIsRaw(img)){
     /* only the 32-bit layout has a writer here; changing a 16-bit file's
        format behind the user's back is not a fair trade for mipmaps */
     if(img.bits!==32)throw new Error(img.fmtName+" · convert it to DXT first");
-    return {bytes:encodeDdsRaw(mipChain(img.width,img.height,img.rgba,opt.smooth)),
+    return {bytes:encodeDdsRaw(mipChain(img.width,img.height,img.rgba,opt.smooth,want)),
             levels:want,was:img.mips||1};
   }
   if(img.width%4||img.height%4)
     throw new Error(img.width+" × "+img.height+" · DXT needs multiples of 4");
-  return {bytes:ddsAppendMips(entryData(e),img,opt.smooth),levels:want,was:img.mips||1};
+  return {bytes:ddsAppendMips(entryData(e),img,opt.smooth,want),levels:want,was:img.mips||1};
 }
 async function generateMips(list,opt){
   opt=opt||{smooth:true};
@@ -4455,6 +4581,79 @@ function showResizeDialog(list,opts){
   ($$(one?"rsW":"rsPct")||$$("rsPct")).focus();
   ($$(one?"rsW":"rsPct")||$$("rsPct")).select();
 }
+/* The choices behind Build mipmaps (mode "build") and Replace with DDS
+   (mode "convert"): how far down a DDS chain goes and, for a conversion,
+   whether the DDS gets one at all. Both are remembered. A build with no DDS
+   in it has nothing to choose, so it just runs. */
+function showMipDialog(list,mode){
+  const convert=mode==="convert";
+  list=(list||[]).filter(e=>e&&e.refId==null&&(convert?toDdsOk(e):MIPPABLE.has(e.tkey)));
+  if(!list.length){toast(convert?"No TGA or PNG files to convert":"No DDS or TGA textures here",true);return;}
+  const dds=list.filter(e=>e.tkey==="dds");
+  if(!convert&&!dds.length){generateMips(list);return;}
+  const one=list.length===1,sample=convert?list[0]:dds[0];
+  const ov=document.createElement("div");
+  ov.id="mpdlg";
+  ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
+  const row=(lb,inner)=>'<div class="rsrow"><div class="lb">'+lb+'</div><div class="in">'+inner+'</div></div>';
+  const note=t=>'<p style="color:var(--text-3);font-size:11px;margin-top:6px">'+t+'</p>';
+  const opts=MIP_MIN_SIZES.map(v=>'<option value="'+v+'"'+(v===mipMin()?" selected":"")+'>'
+    +(v>1?v+" × "+v:"1 × 1 · the full chain")+'</option>').join("");
+  ov.innerHTML='<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);max-width:520px;width:calc(100% - 48px);padding:22px 26px">'
+    +'<h2 style="font-size:15px;margin-bottom:4px">'
+      +(convert?(one?"Replace with DDS":"Replace "+list.length+" "+kindsOf(list)+" with DDS")
+               :(one?"Build mipmaps":"Build mipmaps for "+plural(list.length,"texture")))+'</h2>'
+    +'<p style="color:var(--text-2);font-size:12px;margin-bottom:10px">'
+      +(convert?(one?esc(list[0].name)+' · ':'')+'Opaque textures become DXT1, ones with alpha DXT5. Both sides must be multiples of 4.'
+               :(one?esc(list[0].name):plural(dds.length,"DDS file")+(list.length>dds.length?" and "+plural(list.length-dds.length,"TGA"):""))
+                +' · the levels go inside each DDS.')+'</p>'
+    +(convert?row("Mipmaps",'<label><input type="checkbox" id="mpOn"'+(ddsMipsOnConvert()?" checked":"")+'> build them into the DDS</label>'):"")
+    +row("Smallest level",'<select id="mpMin">'+opts+'</select>')
+    +'<div id="mpOut" style="margin-top:10px;font:400 11px var(--mono);color:var(--text-2);min-height:15px"></div>'
+    +(convert&&list.some(e=>e.tkey==="tga")?note("A TGA's own -mip files go into the DDS where they still match it, so hand-tuned levels stay, and are then removed."):"")
+    +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
+    +'<button class="btn outline" id="mpCancel">Cancel</button>'
+    +'<button class="btn primary" id="mpGo">'+(convert?"Replace":"Build")+'</button></div></div>';
+  document.body.appendChild(ov);
+  const $$=id=>ov.querySelector("#"+id);
+  const close=()=>{ov.remove();window.removeEventListener("keydown",onKey,true);};
+  const onKey=ev=>{
+    if(ev.key==="Escape"){ev.stopPropagation();close();}
+    else if(ev.key==="Enter"){ev.stopPropagation();ev.preventDefault();go();}
+  };
+  window.addEventListener("keydown",onKey,true);
+  ov.addEventListener("mousedown",ev=>{if(ev.target===ov)close();});
+  const on=()=>!convert||$$("mpOn").checked;
+  const preview=()=>{
+    $$("mpMin").disabled=!on();
+    const d=dimsOfEntry(sample);
+    if(!d){$$("mpOut").textContent="";return;}
+    const head=(one?"":sample.name+" · ")+d.w+" × "+d.h+" → ";
+    if(!on()){$$("mpOut").textContent=head+"one level, no mipmaps";return;}
+    const n=mipCountTo(d.w,d.h,+$$("mpMin").value),last=mipDims(d.w,d.h,n-1);
+    const have=convert?1:mipsOf(sample);
+    $$("mpOut").textContent=head+(n===1?"no smaller level at this setting"
+      :plural(n,"level")+", down to "+last.w+" × "+last.h)
+      +(!convert&&have>=n?"  (already has "+plural(have,"level")+")":"")
+      +(one?"":"   · the rest the same way");
+  };
+  ov.querySelectorAll("input,select").forEach(el=>el.addEventListener("change",preview));
+  function go(){
+    const min=+$$("mpMin").value,mips=on();
+    APP_SETTINGS.mipMin=min;
+    if(convert)APP_SETTINGS.ddsMips=mips?1:0;
+    saveSettings();
+    close();
+    if(convert)imagesToDds(list,{mips,minSize:min,smooth:true});
+    else generateMips(list,{smooth:true,minSize:min});
+  }
+  $$("mpCancel").addEventListener("click",close);
+  $$("mpGo").addEventListener("click",go);
+  preview();
+  $$("mpMin").focus();
+}
+/* a DDS whose chain already runs to 1×1: no setting can add to it */
+const ddsFull=e=>{const d=dimsOfEntry(e);return !!d&&mipsOf(e)>=fullMipCount(d.w,d.h);};
 function download(bytes,name,mime){
   const blob=bytes instanceof Blob?bytes:new Blob([bytes],{type:mime});
   const a=document.createElement("a");
@@ -4552,12 +4751,12 @@ function renderTree(){
     const d=document.createElement("div");
     d.className="tnode"+(state.typeFilter===k?" on":"");
     d.innerHTML=typeIcon(TYPE_META[k].cat)+'<span class="lbl">'+esc(TYPE_META[k].tree)+'</span>'
-      +(k==="tga"?'<button class="tact tdds" title="Replace all TGA with DDS (auto DXT1/DXT5)">'+IC_DDS+'</button>':"")
+      +(TO_DDS.has(k)?'<button class="tact tdds" title="Replace all '+k.toUpperCase()+' with DDS… (DXT1 or DXT5, with or without mipmaps)">'+IC_DDS+'</button>':"")
       +'<button class="tact tsel" title="Select all of this type">'+IC_SEL+'</button><span class="cnt">'+counts.get(k)+'</span>';
     d.addEventListener("click",()=>{state.typeFilter=state.typeFilter===k?null:k;refreshList();});
     d.querySelector(".tact:not(.tdds)").addEventListener("click",ev=>{ev.stopPropagation();selectType(k);});
     const dds=d.querySelector(".tdds");
-    if(dds)dds.addEventListener("click",ev=>{ev.stopPropagation();tgaEntriesToDds(state.entries.filter(e=>e.tkey==="tga"));});
+    if(dds)dds.addEventListener("click",ev=>{ev.stopPropagation();showMipDialog(state.entries.filter(e=>e.tkey===k),"convert");});
     t.appendChild(d);
   }
   /* linked VPPs: browsable, read-only sources for previews */
@@ -4699,7 +4898,9 @@ function decodeBitmap(e){
     return Promise.resolve(c.value);
   }
   const blob=new Blob([entryData(e)],{type:e.tkey==="png"?"image/png":"image/jpeg"});
-  return createImageBitmap(blob).then(bm=>{
+  /* Alpine reads PNG and JPEG with stb_image, which ignores gamma and colour
+     profiles, so the browser must not apply them either */
+  return createImageBitmap(blob,{colorSpaceConversion:"none"}).then(bm=>{
     const w=bm.width,h=bm.height;
     const cv=document.createElement("canvas");
     cv.width=w;cv.height=h;
@@ -4858,9 +5059,9 @@ function renderContent(body,e,big,acts){
         renderImage(body,e,img,meta,big);
         if(MIPPABLE.has(k)&&e.refId==null){
           const ms=mipStatus(e);
-          addAct(IC.mip,ms.label,()=>generateMips([e]));
+          addAct(IC.mip,ms.label+(k==="dds"?"…":""),()=>k==="dds"?showMipDialog([e],"build"):generateMips([e]));
           /* a finished TGA stays live: clicking checks its files against it */
-          if((ms.na||(k==="dds"&&!ms.need))&&acts&&acts.lastElementChild)acts.lastElementChild.classList.add("dim");
+          if((ms.na||(k==="dds"&&ddsFull(e)))&&acts&&acts.lastElementChild)acts.lastElementChild.classList.add("dim");
         }
         if(RESIZABLE.has(k)&&e.refId==null)
           addAct(IC.resize,"Resize this image",()=>showResizeDialog([e]));
@@ -5848,22 +6049,23 @@ function contextItems(){
     ...(one&&canBig?[{label:"Open full size",icon:IC.expand,k:"Enter",fn:()=>openLightbox(e)}]:[]),
     {label:one?"Extract file…":"Extract "+n+" files…",icon:IC.extract,k:"Ctrl E",fn:()=>extractIds(state.sel)},
     ...texActions,
-    ...((()=>{const t=[...state.sel].map(byId).filter(x=>x&&x.tkey==="tga");
-      return t.length?[{label:t.length===1?"Replace with DDS":"Replace "+t.length+" TGA with DDS",fn:()=>tgaEntriesToDds(t)}]:[];})()),
+    ...((()=>{const t=[...state.sel].map(byId).filter(toDdsOk);
+      return t.length?[{label:t.length===1?"Replace with DDS…":"Replace "+t.length+" "+kindsOf(t)+" with DDS…",fn:()=>showMipDialog(t,"convert")}]:[];})()),
     ...((()=>{const im=[...state.sel].map(byId).filter(x=>x&&RESIZABLE.has(x.tkey));
       return im.length?[{label:im.length===1?"Resize image…":"Resize "+im.length+" images…",
         icon:IC.resize,fn:()=>showResizeDialog(im)}]:[];})()),
     ...((()=>{const dd=[...state.sel].map(byId).filter(x=>x&&MIPPABLE.has(x.tkey)&&x.refId==null);
       if(!dd.length)return [];
       if(dd.length===1){
-        const ms=mipStatus(dd[0]);
-        return [{label:ms.label,icon:IC.mip,off:!!ms.na||(dd[0].tkey==="dds"&&!ms.need),fn:()=>generateMips(dd)}];
+        const ms=mipStatus(dd[0]),isDds=dd[0].tkey==="dds";
+        return [{label:ms.label+(isDds&&!ddsFull(dd[0])?"…":""),icon:IC.mip,off:!!ms.na||(isDds&&ddsFull(dd[0])),fn:()=>showMipDialog(dd,"build")}];
       }
       const can=dd.filter(x=>!mipStatus(x).na),need=can.filter(needsMips).length;
+      const more=can.some(x=>x.tkey==="tga"||!ddsFull(x)),dots=can.some(x=>x.tkey==="dds")?"…":"";
       return [{label:!can.length?"None of these can take mipmaps"
-                     :need?"Build mipmaps for "+plural(need,"texture")+(need<dd.length?" of "+dd.length:"")
-                     :"Check the mipmaps of "+plural(can.length,"texture"),
-               icon:IC.mip,off:!can.length||(!need&&!can.some(x=>x.tkey==="tga")),fn:()=>generateMips(can)}];})()),
+                     :need?"Build mipmaps for "+plural(need,"texture")+(need<dd.length?" of "+dd.length:"")+dots
+                     :"Check the mipmaps of "+plural(can.length,"texture")+dots,
+               icon:IC.mip,off:!can.length||(!need&&!more),fn:()=>showMipDialog(can,"build")}];})()),
     ...(one?[{label:"Rename",icon:IC.rename,k:"F2",fn:()=>beginRename([...state.sel][0])}]:[]),
     {label:one?"Duplicate":"Duplicate "+n+" files",k:"Ctrl D",fn:duplicateSelected},
     {label:one?"Copy name":"Copy "+n+" names",fn:copySelectedNames},
@@ -6136,7 +6338,8 @@ function menuItems(which){
       {label:"Restore VPP order",icon:IC.order,off:!sorted,fn:()=>{state.sortKey=null;renderRows();}},
       {label:"Write view order to VPP",icon:IC.order,off:!sorted,fn:applyViewOrder},
       "-",
-      {label:"Replace all TGA with DDS",off:!state.entries.some(e2=>e2.tkey==="tga"),fn:()=>tgaEntriesToDds(state.entries.filter(e2=>e2.tkey==="tga"))},
+      ...((()=>{const t=state.entries.filter(toDdsOk);
+        return [{label:"Replace all "+(t.length?kindsOf(t):"TGA")+" with DDS…",off:!t.length,fn:()=>showMipDialog(t,"convert")}];})()),
       ...((()=>{
         /* the selection when it holds images, otherwise every image in the VPP */
         const sel=[...state.sel].map(byId).filter(x=>x&&RESIZABLE.has(x.tkey));
@@ -6155,14 +6358,14 @@ function menuItems(which){
         const pick=sel.length?sel:all;
         const need=pick.filter(needsMips).length;
         const toCheck=pick.filter(x=>mipStatus(x).check).length;
-        const tga=pick.some(x=>x.tkey==="tga");
+        const more=pick.some(x=>x.tkey==="tga"||!ddsFull(x)),dots=pick.some(x=>x.tkey==="dds")?"…":"";
         return [{label:!pick.length?"Build mipmaps"
                        :need?(sel.length?"Build mipmaps for "+plural(sel.length,"selected texture")
-                                        :"Build mipmaps for all "+plural(all.length,"texture"))
-                       :"Check the mipmaps of "+(sel.length?"the selected textures":"every texture"),
-                 icon:IC.mip,off:!pick.length||(!need&&!tga),
+                                        :"Build mipmaps for all "+plural(all.length,"texture"))+dots
+                       :"Check the mipmaps of "+(sel.length?"the selected textures":"every texture")+dots,
+                 icon:IC.mip,off:!pick.length||(!need&&!more),
                  k:!pick.length?"none can take them":need?need+" need them":toCheck?toCheck+" to check":"all built",
-                 fn:()=>generateMips(pick)}];
+                 fn:()=>showMipDialog(pick,"build")}];
       })()),
       {label:"Export folders…",off:!BRIDGE,fn:showExportFolders},
       "-",
