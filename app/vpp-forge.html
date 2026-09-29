@@ -3105,6 +3105,27 @@ function atxUsable(atx){
   for(const f of x.files)if(!findTexture(f,{noAtx:true}))return false;
   return !x.alphaMask||!!findTexture(x.alphaMask,{noAtx:true});
 }
+/* The ATX (in this VPP, or linked and read) that loads this file as a frame
+   or its alpha mask, going by the file the game picks for each name, or
+   null. Alpine wants every frame of an ATX alike in size, format and level
+   count, so mipmapping or converting one on its own breaks the ATX. */
+function atxFrameOf(e){
+  const ai=assetIndex();
+  if(!ai.frameOf){
+    ai.frameOf=new Map();
+    for(const sl of ai.byName.values()){
+      const a=sl.own||sl.linked;
+      if(!a||a.tkey!=="atx")continue;
+      const x=atxSpec(a);
+      if(!x)continue;
+      for(const f of x.alphaMask?x.files.concat(x.alphaMask):x.files){
+        const t=findTexture(f,{noAtx:true});
+        if(t&&!ai.frameOf.has(t))ai.frameOf.set(t,a.name);
+      }
+    }
+  }
+  return ai.frameOf.get(e)||null;
+}
 /* the image the game would show for an ATX: its first frame */
 function atxPixelEntry(atx){
   const frames=atxFrames(atx);
@@ -3699,6 +3720,10 @@ async function imagesToDds(list,opt){
            fails in-game (D3D11 fatal error in Alpine/Dash Faction) */
         if(dec.width%4||dec.height%4)
           throw new Error(dec.width+"×"+dec.height+" · needs multiples of 4");
+        const fr=atxFrameOf(e);
+        if(fr)throw new Error("a frame of "+fr+", and Alpine turns an ATX down unless every frame has the same size, format and levels");
+        if(opt.mips&&mipCountTo(dec.width,dec.height,opt.minSize||1)>1&&!dxtMipSizeOk(dec.width,dec.height))
+          throw new Error(dec.width+"×"+dec.height+" · "+DXT_MIP_SIZE);
         const levels=[{w:dec.width,h:dec.height,px:dec.rgba}];
         if(opt.mips){
           const want=mipCountTo(dec.width,dec.height,opt.minSize||1);
@@ -3759,15 +3784,18 @@ async function imagesToDds(list,opt){
       +(failed.length?" · "+failed.length+" left as they were":"")+" · Ctrl S to save",failed.length>0);
   }else if(failed.length)toast("Nothing converted · "+failed.length+" left as they were",true);
   if(failed.length){
-    const odd=failedEntries.filter(x=>{const d=dimsOfEntry(x);return d&&(d.w%4||d.h%4);});
+    /* sizes a resize can fix: to a multiple of 4, or of 16 for mipmaps */
+    const sixteen=failedEntries.some(x=>{const d=dimsOfEntry(x);return d&&!(d.w%4||d.h%4)&&!dxtMipSizeOk(d.w,d.h);});
+    const odd=failedEntries.filter(x=>{const d=dimsOfEntry(x);return d&&(d.w%4||d.h%4||(opt.mips&&!dxtMipSizeOk(d.w,d.h)));});
     openPop('<h3>Not converted</h3><ul>'
       +failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")
-      +'</ul><div style="padding:4px 10px 8px;color:var(--text-2);font-size:11px;max-width:300px">DXT compression works in 4×4 blocks, and the game\'s renderer rejects DDS textures whose width or height is not a multiple of 4.'
-      +(odd.length?' <button class="btn outline sm" id="popResize" style="margin-top:6px">Resize them to a multiple of 4…</button>':'')
+      +'</ul><div style="padding:4px 10px 8px;color:var(--text-2);font-size:11px;max-width:300px">DXT compression works in 4×4 blocks, and the game\'s renderer rejects DDS textures whose width or height is not a multiple of 4'
+      +(sixteen?', or, with mipmaps, of 16.':'.')
+      +(odd.length?' <button class="btn outline sm" id="popResize" style="margin-top:6px">Resize them to a multiple of '+(sixteen?16:4)+'…</button>':'')
       +'</div>',
       menuBtn("tools"));
     const rb=$("popResize");
-    if(rb)rb.addEventListener("click",()=>{closePop();showResizeDialog(odd,{round:"4"});});
+    if(rb)rb.addEventListener("click",()=>{closePop();showResizeDialog(odd,{round:sixteen?"16":"4"});});
   }
 }
 /* ---- Image resizing --------------------------------------------------
@@ -3874,16 +3902,27 @@ function mipChain(w,h,px,smooth,count){
   }
   return levels;
 }
-const fullMipCount=(w,h)=>{let n=1;while(w>1||h>1){w=Math.max(1,w>>1);h=Math.max(1,h>>1);n++;}return n;};
+/* The longest chain the game uses: down to where the shorter side reaches
+   1. Past it, Alpine and Dash's Direct3D 11 drop the levels and the legacy
+   renderer never fills them (it halves each side without stopping at 1). */
+const ddsChainMax=(w,h)=>1+Math.floor(Math.log2(Math.max(1,Math.min(w,h))));
 /* The levels from the base down to the last one whose shorter side is still
-   at least min; min 1 is the full chain to 1×1. A base already at or under
-   min is a chain of one. */
-const mipCountTo=(w,h,min)=>{
-  if(!(min>1))return fullMipCount(w,h);
+   at least min; min 1 is the whole chain. A base already at or under min is
+   a chain of one. Never two on a texture over 16 on both sides: Low texture
+   detail drops the top two levels of those, and two would leave none, so
+   it gets a third (asked leaves that out, for showing why). */
+const mipCountTo=(w,h,min,asked)=>{
   let n=1;
-  while(Math.min(w>>n,h>>n)>=min)n++;
+  if(!(min>1))n=ddsChainMax(w,h);
+  else while(Math.min(w>>n,h>>n)>=min)n++;
+  if(!asked&&n===2&&w>16&&h>16)n=3;
   return n;
 };
+/* Medium and Low texture detail halve and quarter a mipmapped texture over
+   16 on both sides, and Direct3D 11 then needs the top level of a DXT to be
+   a multiple of 4 or it fails, fatally in Alpine */
+const dxtMipSizeOk=(w,h)=>w<=16||h<=16||(w%16===0&&h%16===0);
+const DXT_MIP_SIZE="with mipmaps, DXT needs sides that are multiples of 16, since lower texture detail shrinks it to a quarter";
 /* the size of level n (0 is the base) */
 const mipDims=(w,h,n)=>({w:Math.max(1,w>>n),h:Math.max(1,h>>n)});
 /* Mipmap choices, remembered: the smallest level a DDS chain is built down
@@ -3917,8 +3956,9 @@ async function resizeEntry(e,sizeFor,opt){
     let levels=[{w,h,px}];
     if(img.mips>1){
       const last=mipDims(img.width,img.height,img.mips-1);
-      const full=img.mips>=fullMipCount(img.width,img.height);
-      levels=mipChain(w,h,px,true,full?0:mipCountTo(w,h,Math.min(last.w,last.h)));
+      const full=img.mips>=ddsChainMax(img.width,img.height);
+      levels=mipChain(w,h,px,true,full?ddsChainMax(w,h):mipCountTo(w,h,Math.min(last.w,last.h)));
+      if(!raw&&levels.length>1&&!dxtMipSizeOk(w,h))throw new Error(w+" × "+h+" · "+DXT_MIP_SIZE);
     }
     bytes=encodeDdsLike(img,levels);
   }
@@ -4091,6 +4131,11 @@ function tgaMipBlocker(e,w,h,bpp){
 function mipStatus(e){
   if(e.tkey==="dds"){
     const d=dimsOfEntry(e),min=mipMin();
+    if(/· DX10/.test(e.info||""))return {na:true,label:"No mipmaps: it has a DX10 header, which Alpine Faction and Dash Faction do not load"};
+    const fr=atxFrameOf(e);
+    if(fr)return {na:true,label:"No mipmaps: it is a frame of "+fr+", and Alpine turns an ATX down unless every frame has the same size, format and levels"};
+    if(d&&/· DXT/.test(e.info||"")&&!dxtMipSizeOk(d.w,d.h))
+      return {na:true,label:"No mipmaps: "+d.w+" × "+d.h+" · "+DXT_MIP_SIZE};
     const want=d?mipCountTo(d.w,d.h,min):0,have=mipsOf(e);
     if(d&&want===1&&have===1)
       return {done:true,label:"No mipmaps to add: "+d.w+" × "+d.h+" is already at the smallest level ("+mipMinLabel(min)+")"};
@@ -4313,7 +4358,7 @@ function ddsAppendMips(bytes,img,smooth,levels){
   const blockSize=img.codec==="bc1"?8:16;
   const baseLen=dxtLevelBytes({w:img.width,h:img.height},blockSize);
   if(start+baseLen>bytes.length)throw new Error("DDS data truncated");
-  levels=levels||fullMipCount(img.width,img.height);
+  levels=levels||ddsChainMax(img.width,img.height);
   /* the new levels in the file's own block kind: DXT3 alpha under a DXT3
      header, and a DXT1 cutout keeps its holes */
   const tail=dxtEncodeLevels(mipChain(img.width,img.height,img.rgba,smooth,levels).slice(1),dxtModeOf(img));
@@ -4327,6 +4372,8 @@ function ddsAppendMips(bytes,img,smooth,levels){
   return out;
 }
 async function mipEntry(e,opt){
+  const why=mipStatus(e);
+  if(why.na)throw new Error(why.label.replace(/^No mipmaps: /,""));
   const img=await pixelsOf(e);
   const want=mipCountTo(img.width,img.height,opt.minSize??mipMin());
   if((img.mips||1)>=want)return {already:true,levels:img.mips};
@@ -4339,6 +4386,7 @@ async function mipEntry(e,opt){
   }
   if(img.width%4||img.height%4)
     throw new Error(img.width+" × "+img.height+" · DXT needs multiples of 4");
+  if(!dxtMipSizeOk(img.width,img.height))throw new Error(img.width+" × "+img.height+" · "+DXT_MIP_SIZE);
   return {bytes:ddsAppendMips(entryData(e),img,opt.smooth,want),levels:want,was:img.mips||1};
 }
 async function generateMips(list,opt){
@@ -4495,6 +4543,7 @@ function showResizeDialog(list,opts){
          +'<label><input type="checkbox" id="rsKeep" checked> keep aspect</label>')
     +row("Round to",'<select id="rsRound"><option value="none">anything</option>'
          +'<option value="4" selected>a multiple of 4 (DDS-safe)</option>'
+         +'<option value="16">a multiple of 16 (DDS with mipmaps)</option>'
          +'<option value="pot">a power of two</option></select>')
     +row("Resample",'<select id="rsSmooth"><option value="1" selected>smooth</option>'
          +'<option value="0">nearest · keeps hard pixels</option></select>')
@@ -4530,6 +4579,7 @@ function showResizeDialog(list,opts){
     }
     const r=$$("rsRound").value;
     if(r==="4"){w=Math.max(4,Math.round(w/4)*4);h=Math.max(4,Math.round(h/4)*4);}
+    else if(r==="16"){w=Math.max(16,Math.round(w/16)*16);h=Math.max(16,Math.round(h/16)*16);}
     else if(r==="pot"){w=pot(w);h=pot(h);}
     return {w:Math.max(1,Math.min(8192,w)),h:Math.max(1,Math.min(8192,h))};
   };
@@ -4630,10 +4680,12 @@ function showMipDialog(list,mode){
     if(!d){$$("mpOut").textContent="";return;}
     const head=(one?"":sample.name+" · ")+d.w+" × "+d.h+" → ";
     if(!on()){$$("mpOut").textContent=head+"one level, no mipmaps";return;}
-    const n=mipCountTo(d.w,d.h,+$$("mpMin").value),last=mipDims(d.w,d.h,n-1);
+    const min=+$$("mpMin").value,n=mipCountTo(d.w,d.h,min),last=mipDims(d.w,d.h,n-1);
+    const extra=n!==mipCountTo(d.w,d.h,min,true);
     const have=convert?1:mipsOf(sample);
     $$("mpOut").textContent=head+(n===1?"no smaller level at this setting"
       :plural(n,"level")+", down to "+last.w+" × "+last.h)
+      +(extra?"  (one more than asked: two levels would leave none at Low texture detail)":"")
       +(!convert&&have>=n?"  (already has "+plural(have,"level")+")":"")
       +(one?"":"   · the rest the same way");
   };
@@ -4653,7 +4705,7 @@ function showMipDialog(list,mode){
   $$("mpMin").focus();
 }
 /* a DDS whose chain already runs to 1×1: no setting can add to it */
-const ddsFull=e=>{const d=dimsOfEntry(e);return !!d&&mipsOf(e)>=fullMipCount(d.w,d.h);};
+const ddsFull=e=>{const d=dimsOfEntry(e);return !!d&&mipsOf(e)>=ddsChainMax(d.w,d.h);};
 function download(bytes,name,mime){
   const blob=bytes instanceof Blob?bytes:new Blob([bytes],{type:mime});
   const a=document.createElement("a");
