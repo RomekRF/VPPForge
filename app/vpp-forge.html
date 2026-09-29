@@ -3703,12 +3703,6 @@ const kindsOf=list=>["tga","png"].filter(k=>list.some(e=>e.tkey===k)).map(k=>k.t
 async function imagesToDds(list,opt){
   opt=opt||{mips:false};
   list=list.filter(toDdsOk);
-  /* a PNG and a TGA of the same name would both become name.dds; the game
-     shows the PNG, so that one is converted and the TGA left alone */
-  const baseOf=x=>x.name.slice(0,x.name.lastIndexOf(".")).toLowerCase();
-  const pngs=new Set(list.filter(x=>x.tkey==="png").map(baseOf));
-  const shadowed=list.filter(x=>x.tkey==="tga"&&pngs.has(baseOf(x)));
-  list=list.filter(x=>!shadowed.includes(x));
   if(!list.length){toast("No TGA or PNG files to convert",true);return;}
   if(imagesToDds._busy)return;
   imagesToDds._busy=true;
@@ -3717,7 +3711,6 @@ async function imagesToDds(list,opt){
   let ok=0,dxt1=0,dxt5=0,deadMips=0,merged=0,chained=0;
   const failed=[],failedEntries=[],newSel=new Set(),done=[];
   const fixBy=new Map();     /* files a resize would let through: to 4, or 16 */
-  for(const x of shadowed)failed.push(x.name+" (its PNG becomes the same DDS, and the game shows the PNG)");
   try{
     for(let i=0;i<list.length;i++){
       if(state.entries!==ents)break;       /* another file list was put in place */
@@ -3735,6 +3728,12 @@ async function imagesToDds(list,opt){
            for any frame or mask of that name */
         const fr=atxFrameOf(e)||atxFrameStem(e.name);
         if(fr)throw new Error("a frame of "+fr+", and Alpine turns an ATX down unless every frame has the same size, format and levels");
+        /* Only the file the game shows for its name. Anything this VPP has
+           above it (an ATX, a DDS, a PNG over a TGA, the VBM a .tga name
+           tries first) would lose to the new DDS, and the game would show
+           other art; an existing DDS would be written over. */
+        const shown=findTexture(e.name);
+        if(shown&&shown!==e&&shown.refId==null)throw new Error("the game shows "+shown.name+" for this name, not this file");
         const need16=opt.mips&&mipCountTo(dec.width,dec.height,opt.minSize||1)>1&&!dxtMipSizeOk(dec.width,dec.height);
         if(dec.width%4||dec.height%4){
           fixBy.set(e,need16?16:4);
@@ -4536,6 +4535,14 @@ async function generateMips(list,opt){
     openPop('<h3>'+(failed.length&&!ok?"No mipmaps built":failed.length?"Not everything took mipmaps":"Where the mipmap chains stop")
       +'</h3><ul>'+lines.join("")+"</ul>",menuBtn("tools"));
 }
+/* A dialog stops the app's shortcuts from reaching the page, so the
+   browser's own would run in their place (Save page, Open, Find, Bookmark,
+   select all): cancel those, leaving undo and select-all to a text field. */
+function blockAccel(ev){
+  if(!(ev.ctrlKey||ev.metaKey)||ev.key.length!==1)return;
+  const k=ev.key.toLowerCase(),field=ev.target.tagName==="INPUT"&&ev.target.type!=="checkbox"&&ev.target.type!=="radio";
+  if("osefd".includes(k)||("azy".includes(k)&&!field))ev.preventDefault();
+}
 function showResizeDialog(list,opts){
   list=(list||[]).filter(e=>e&&RESIZABLE.has(e.tkey)&&e.refId==null);
   if(!list.length){toast("Nothing to resize here · TGA, DDS, PNG and JPEG can be resized",true);return;}
@@ -4575,6 +4582,7 @@ function showResizeDialog(list,opts){
     ev.stopPropagation();                    /* modal: no app shortcut behind it */
     if(ev.key==="Escape")close();
     else if(ev.key==="Enter"&&ev.target.tagName!=="BUTTON"){ev.preventDefault();go();}
+    else blockAccel(ev);
   };
   window.addEventListener("keydown",onKey,true);
   ov.addEventListener("mousedown",ev=>{if(ev.target===ov)close();});
@@ -4696,6 +4704,7 @@ function showMipDialog(list,mode){
     ev.stopPropagation();
     if(ev.key==="Escape")close();
     else if(ev.key==="Enter"&&ev.target.tagName!=="BUTTON"){ev.preventDefault();go();}
+    else blockAccel(ev);
   };
   window.addEventListener("keydown",onKey,true);
   ov.addEventListener("mousedown",ev=>{if(ev.target===ov)close();});
@@ -4999,6 +5008,10 @@ function readPixelsExact(bm){
     if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE){
       px=new Uint8ClampedArray(w*h*4);
       gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,px);   /* image row 0 is texture row 0 */
+      /* a GPU reset during the read leaves px zeroed, and Chromium only flags
+         the loss a task later; another round trip on a lost context cannot
+         come back COMPLETE */
+      if(gl.isContextLost()||gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)px=null;
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER,null);
     gl.deleteFramebuffer(fb);gl.deleteTexture(t);
