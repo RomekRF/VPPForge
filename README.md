@@ -35,22 +35,35 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
 - Add, remove, rename, reorder and duplicate files; undo and redo.
 - Drag-select in the file list, select-all per file type, filtering, and
   full keyboard navigation.
-- Replace all TGA with DDS in one click: automatic DXT1/DXT5 by alpha,
-  with a guard against dimensions the game's D3D11 renderer rejects.
+- Replace TGA and PNG with DDS, one file or all of them: DXT1 or DXT5 by
+  alpha, with or without mipmaps built into the DDS, down to the smallest
+  level you pick. A TGA's own `-mip` files go into the DDS where they still
+  match it, so hand-tuned levels survive. Sizes the game's renderer would
+  reject are turned down with the reason. PNG is read the way Alpine reads
+  it, with no gamma or colour-profile correction.
 - Resize one image or a whole selection, by percentage or to an exact size,
-  rounding to a multiple of 4 or a power of two. Each file is rewritten in
-  the format it already had, so meshes and levels keep finding it, DDS
-  mipmap chains are rebuilt, and the colour under transparent pixels
-  survives the trip.
+  rounding to a multiple of 4 or 16, or a power of two. Each file is
+  rewritten in the format it already had (DXT3 stays DXT3, a DXT1 cutout
+  keeps its holes), so meshes and levels keep finding it, DDS mipmap chains
+  are rebuilt down to the same smallest level, and the colour under
+  transparent pixels survives the trip.
 - Build mipmaps for one texture, a selection, or every DDS and TGA in the
-  VPP. A DDS gets its chain inside the file: the full-size image is kept
-  byte for byte and only the smaller levels are added, so there is no second
-  round of DXT loss. A TGA gets separate `<name>-mip1.tga` and `-mip2.tga`
+  VPP. A DDS gets its chain inside the file, down to the smallest level you
+  pick (1 × 1 to 128 × 128): the full-size image is kept byte for byte and
+  only the smaller levels are added, in the file's own format, so there is
+  no second round of DXT loss. Chains follow the rules Alpine and Dash
+  Faction read them by: they end where the shorter side reaches 1, never
+  stop at two levels on a texture over 16 pixels (Low texture detail would
+  leave none), and a mipmapped DXT over 16 pixels needs sides that are
+  multiples of 16. The frames of an ATX, which must all match, and DDS
+  files with a DX10 header, which neither game loads, are left alone.
+  A TGA gets separate `<name>-mip1.tga` and `-mip2.tga`
   files, named and sized exactly as the game's own loader looks for them
   (read from RF 1.20's bm_read_header): each level half the last, same bit
-  depth, power-of-two textures only. The game builds the smaller levels
-  itself, so these mainly save load time, help the lower texture-quality
-  settings, and give you files to hand-tune. Nothing another file depends
+  depth, power-of-two textures only, square or not. For a 24-bit TGA the
+  game makes the same levels itself, so these are mainly for hand-tuning;
+  for a 32-bit one they also keep the alpha along the edges right, which
+  the game's own levels get wrong. Nothing another file depends
   on is written over. The low-detail skins that stock characters name
   directly (`foo-mip2.tga` with no `-mip1`, or `foo_mip1.tga`) are left
   exactly as they are. A mip that no longer looks like its texture is only

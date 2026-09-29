@@ -37,9 +37,12 @@ USING IT
     reads the PNG and JPEG textures Alpine Faction 1.4 introduces.
   - Right-click an image for Resize: percentage or exact size, for one
     file or a whole selection, written back in the same format.
+  - Right-click a TGA or PNG for Replace with DDS, with or without
+    mipmaps built in. Tools does every one in the VPP at once.
   - Right-click a DDS or TGA for Build mipmaps, or use Tools to do every
-    one in the VPP at once. A DDS gets its levels inside the file; a TGA
-    gets -mip1 and -mip2 files beside it, the way the game looks for them.
+    one in the VPP at once. A DDS gets its levels inside the file, down to
+    the smallest level you pick; a TGA gets -mip1 and -mip2 files beside
+    it, the way the game looks for them.
     Textures already mipmapped are skipped. Mip files that no longer
     match their texture are only replaced if you say so, and the
     low-detail skins characters use by name are never touched. Deleting,
