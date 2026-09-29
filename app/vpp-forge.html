@@ -3736,7 +3736,8 @@ async function imagesToDds(list,opt){
         const slots=assetIndex().byStem.get(stemOf(e.name))||{};
         const top=texOrderFor(e.name).map(x=>slots[x])
           .find(h=>h&&h.refId==null&&(h.tkey!=="atx"||atxUsable(h)));
-        if(top&&top!==e)throw new Error("the game shows "+top.name+" for this name, not this file");
+        if(top&&top!==e)throw new Error(findTexture(e.name)===top?"the game shows "+top.name+" for this name, not this file"
+                                                               :"this VPP's "+top.name+" comes before it for this name");
         const need16=opt.mips&&mipCountTo(dec.width,dec.height,opt.minSize||1)>1&&!dxtMipSizeOk(dec.width,dec.height);
         if(dec.width%4||dec.height%4){
           fixBy.set(e,need16?16:4);
