@@ -4133,7 +4133,8 @@ function rebuildMipChain(e,chain,smooth){
   if(!chain.length)return r;
   const img=getDecoded(e,"tga"),w=img.width,h=img.height,bpp=img.bpp;
   const can=isPow2(w)&&isPow2(h)&&(bpp===24||bpp===32);
-  let prev=img.rgba,pw=w,ph=h,last=null,lastN=0;
+  let prev=img.rgba,pw=w,ph=h,lastN=0;
+  const done=[];
   chain.forEach((x,i)=>{
     const n=i+1,mw=w>>n,mh=h>>n,at=state.entries.indexOf(x);
     if(at<0)return;
@@ -4141,25 +4142,36 @@ function rebuildMipChain(e,chain,smooth){
     const px=resamplePixels(prev,pw,ph,mw,mh,smooth);
     prev=px;pw=mw;ph=mh;
     x.data=encodeTga(mw,mh,px,bpp===32);x.size=x.data.length;x.offset=null;
-    decodeCache.delete(x.id);probeInfo(x);r.rebuilt++;last=x;lastN=n;
+    decodeCache.delete(x.id);probeInfo(x);r.rebuilt++;done[n]=x;lastN=n;
   });
-  /* The levels fit the new size. A file past the last one that now fits
-     too (a low-detail skin meshes name directly, say) would be read as the
-     next level and tied to this chain, so the last level goes and the gap
-     stays open, as planTgaMips keeps it. A linked file not read yet counts. */
-  if(last){
-    assetIdx=null;
-    const nm=tgaMipName(e,lastN+1),sl=nm.length<=TGA_MIP_NAME_MAX?nameSlot(nm):{},x=sl.own||sl.linked;
-    if(x){
-      if(!x.info&&x.data)probeInfo(x);
-      const xd=dimsOfEntry(x);
-      if(xd?xd.w===w>>(lastN+1)&&xd.h===h>>(lastN+1)&&bppOf(x)===bpp:x.refId!=null&&!x.data){
-        const at=state.entries.indexOf(last);
-        if(at>=0){state.entries.splice(at,1);decodeCache.delete(last.id);r.rebuilt--;r.removed++;}
-      }
+  /* The levels fit the new size. If the file past the last one now fits
+     too, the game reads it as the next level. That is fine for a level of a
+     linked chain running from -mip1 (a stock chain: the fresh levels here
+     shadow its lower ones). Anything else is a texture meshes name directly
+     (a low-detail skin, say), so the last level goes, and the next one too
+     for as long as the file that uncovers fits, until the gap is really
+     open, as planTgaMips keeps it. A linked file not read yet counts as
+     fitting. */
+  const fitsAt=(x,k)=>{
+    if(!x.info&&x.data)probeInfo(x);
+    const xd=dimsOfEntry(x);
+    return xd?xd.w===w>>k&&xd.h===h>>k&&bppOf(x)===bpp:x.refId!=null&&!x.data;
+  };
+  const slotAt=k=>{const nm=tgaMipName(e,k);return nm.length<=TGA_MIP_NAME_MAX?nameSlot(nm):{own:null,linked:null};};
+  for(let n=lastN;n>=1;n--){
+    assetIdx=null;                          /* see the level just removed */
+    const up=slotAt(n+1),x=up.own||up.linked;
+    if(!x||!fitsAt(x,n+1))break;
+    if(!up.own){
+      let stock=true;
+      for(let k=1;k<=n+1&&stock;k++){const l=slotAt(k).linked;stock=!!l&&fitsAt(l,k);}
+      if(stock)break;
     }
-    assetIdx=null;
+    const lv=done[n],at=lv?state.entries.indexOf(lv):-1;
+    if(at<0)break;
+    state.entries.splice(at,1);decodeCache.delete(lv.id);r.rebuilt--;r.removed++;
   }
+  assetIdx=null;
   return r;
 }
 const mipsOf=e=>{const m=/· (\d+) mips/.exec(e.info||"");return m?+m[1]:1;};
