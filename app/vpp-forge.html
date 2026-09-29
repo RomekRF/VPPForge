@@ -3728,12 +3728,15 @@ async function imagesToDds(list,opt){
            for any frame or mask of that name */
         const fr=atxFrameOf(e)||atxFrameStem(e.name);
         if(fr)throw new Error("a frame of "+fr+", and Alpine turns an ATX down unless every frame has the same size, format and levels");
-        /* Only the file the game shows for its name. Anything this VPP has
-           above it (an ATX, a DDS, a PNG over a TGA, the VBM a .tga name
-           tries first) would lose to the new DDS, and the game would show
-           other art; an existing DDS would be written over. */
-        const shown=findTexture(e.name);
-        if(shown&&shown!==e&&shown.refId==null)throw new Error("the game shows "+shown.name+" for this name, not this file");
+        /* Only the file this VPP shows for its name. Anything of its own
+           above it (an ATX the game takes, a DDS, a PNG over a TGA, the VBM
+           a .tga name tries first) would lose to the new DDS, and the game
+           would show other art; an existing DDS would be written over. Linked
+           files do not count: the open VPP's DDS is meant to win over them. */
+        const slots=assetIndex().byStem.get(stemOf(e.name))||{};
+        const top=texOrderFor(e.name).map(x=>slots[x])
+          .find(h=>h&&h.refId==null&&(h.tkey!=="atx"||atxUsable(h)));
+        if(top&&top!==e)throw new Error("the game shows "+top.name+" for this name, not this file");
         const need16=opt.mips&&mipCountTo(dec.width,dec.height,opt.minSize||1)>1&&!dxtMipSizeOk(dec.width,dec.height);
         if(dec.width%4||dec.height%4){
           fixBy.set(e,need16?16:4);
