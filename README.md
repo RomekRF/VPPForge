@@ -73,6 +73,12 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   texture takes its mip files along.
 - VPP checks flag texture names longer than 31 characters. The game keeps
   texture names in 32 bytes, so a longer one loads wrong or not at all.
+- VPP checks also flag DDS mip chains the game mishandles: exactly two
+  levels on a texture over 16 pixels (Low texture detail leaves none), levels
+  past where the short side reaches 1 (the legacy renderer never fills them),
+  a count of zero, and a mipmapped DXT over 16 pixels that is not a multiple
+  of 16 (fatal in Alpine at Medium or Low detail). Build mipmaps fixes the
+  first three, trimming an over-long chain byte for byte.
 - Extract opens the native Windows folder picker and unpacks straight
   into the folder you choose.
 

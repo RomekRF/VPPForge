@@ -4156,6 +4156,9 @@ function mipStatus(e){
     if(d&&/· DXT/.test(e.info||"")&&!dxtMipSizeOk(d.w,d.h))
       return {na:true,label:"No mipmaps: "+d.w+" × "+d.h+" · "+DXT_MIP_SIZE};
     const want=d?mipCountTo(d.w,d.h,min):0,have=mipsOf(e);
+    if(d&&have>ddsChainMax(d.w,d.h))
+      return {need:true,label:"Trim the mipmap chain to the "+ddsChainMax(d.w,d.h)+" levels the game uses ("+have+" now)"};
+    if(ddsZeroCount(e))return {need:true,label:"Fix the mipmap count (the file declares zero levels)"};
     if(d&&want===1&&have===1)
       return {done:true,label:"No mipmaps to add: "+d.w+" × "+d.h+" is already at the smallest level ("+mipMinLabel(min)+")"};
     return !d||have<want?{need:true,label:have>1?"Finish the mipmap chain ("+have+" of "+want+" levels)":"Build mipmaps"}
@@ -4368,6 +4371,28 @@ function rebuildMipChain(e,chain,smooth){
   return r;
 }
 const mipsOf=e=>{const m=/· (\d+) mips/.exec(e.info||"");return m?+m[1]:1;};
+/* a DDS header that sets the mip-count flag with a count of 0: the game
+   takes that as no levels at all, and lower texture detail wraps it round */
+const ddsZeroCount=e=>{
+  try{const d=entryData(e),v=new DataView(d.buffer,d.byteOffset,d.byteLength);
+    return d.length>=128&&(v.getUint32(8,true)&0x20000)!==0&&v.getUint32(28,true)===0;}
+  catch(_){return false;}
+};
+/* Keep the first `levels` levels and drop the rest, byte for byte: nothing
+   is recompressed. For a chain running past where the short side reaches 1,
+   whose tail the game never uses (see ddsChainMax). */
+function ddsTrim(bytes,img,levels){
+  const raw=ddsIsRaw(img),bpp=Math.max(1,(img.bits||0)>>3),bs=img.codec==="bc1"?8:16;
+  let len=128;
+  for(let i=0;i<levels;i++){
+    const m=mipDims(img.width,img.height,i);
+    len+=raw?m.w*m.h*bpp:((m.w+3)>>2)*((m.h+3)>>2)*bs;
+  }
+  if(len>bytes.length)throw new Error("DDS data truncated");
+  const out=bytes.slice(0,len);
+  new DataView(out.buffer).setUint32(28,levels,true);
+  return out;
+}
 /* Keep the file's own base level and append the smaller ones. Re-encoding
    the full-size image would cost a generation of DXT quality for nothing. */
 function ddsAppendMips(bytes,img,smooth,levels){
@@ -4394,8 +4419,16 @@ async function mipEntry(e,opt){
   const why=mipStatus(e);
   if(why.na)throw new Error(why.label.replace(/^No mipmaps: /,""));
   const img=await pixelsOf(e);
+  const cap=ddsChainMax(img.width,img.height);
+  if((img.mips||1)>cap)return {bytes:ddsTrim(entryData(e),img,cap),levels:cap,was:img.mips,trimmed:true};
   const want=mipCountTo(img.width,img.height,opt.minSize??mipMin());
-  if((img.mips||1)>=want)return {already:true,levels:img.mips};
+  if((img.mips||1)>=want){
+    if(!ddsZeroCount(e))return {already:true,levels:img.mips};
+    /* nothing to add at this setting, so just say one level plainly */
+    const fixed=entryData(e).slice(),v=new DataView(fixed.buffer);
+    v.setUint32(8,v.getUint32(8,true)&~0x20000,true);
+    return {bytes:fixed,levels:1,was:1,fixedCount:true};
+  }
   if(ddsIsRaw(img)){
     /* only the 32-bit layout has a writer here; changing a 16-bit file's
        format behind the user's back is not a fair trade for mipmaps */
@@ -4422,7 +4455,7 @@ async function generateMips(list,opt){
   generateMips._busy=true;
   const prog=progressOverlay(list.length===1?"Building mipmaps":"Building mipmaps for "+list.length+" textures");
   let pre=null;
-  let ok=0,already=0,grew=0,files=0,refreshed=0,replaced=0,declined=0;
+  let ok=0,already=0,grew=0,files=0,refreshed=0,replaced=0,declined=0,trimmed=0;
   const failed=[],notes=[],plans=[];
   try{
     /* decide everything first, changing nothing */
@@ -4471,6 +4504,7 @@ async function generateMips(list,opt){
       if(p.failed){failed.push(e.name+" ("+p.failed+")");continue;}
       if(p.dds){
         const r=p.dds;
+        if(r.trimmed)trimmed++;
         grew+=r.bytes.length-e.size;
         e.data=r.bytes;e.size=r.bytes.length;e.offset=null;
         decodeCache.delete(e.id);
@@ -4523,6 +4557,7 @@ async function generateMips(list,opt){
     refreshLightbox();
     toast("Mipmapped "+plural(ok,"texture")+(files?" · "+plural(files,"mip file")+" added":"")
       +(replaced?" · "+replaced+" replaced":"")
+      +(trimmed?" · "+plural(trimmed,"chain")+" trimmed to the levels the game uses":"")
       +(refreshed?" · "+refreshed+" made fresh from the edited texture":"")
       +(grew?" · "+fmtBytes(Math.abs(grew))+(grew<0?" smaller":" larger"):"")
       +(declined?" · kept "+plural(declined,"older mip file")+" as asked":"")
@@ -4721,7 +4756,8 @@ function showMipDialog(list,mode){
     if(!on()){$$("mpOut").textContent=head+"one level, no mipmaps";return;}
     const min=+$$("mpMin").value,n=mipCountTo(d.w,d.h,min),last=mipDims(d.w,d.h,n-1);
     const extra=n!==mipCountTo(d.w,d.h,min,true);
-    const have=convert?1:mipsOf(sample);
+    const have=convert?1:mipsOf(sample),cap=ddsChainMax(d.w,d.h);
+    if(!convert&&have>cap){$$("mpOut").textContent=head+"trimmed to the "+cap+" levels the game uses (it has "+have+")";return;}
     $$("mpOut").textContent=head+(n===1?"no smaller level at this setting"
       :plural(n,"level")+", down to "+last.w+" × "+last.h)
       +(extra?"  (one more than asked: two levels would leave none at Low texture detail)":"")
@@ -4746,7 +4782,7 @@ function showMipDialog(list,mode){
   ($$("mpMin").disabled?$$("mpGo"):$$("mpMin")).focus();
 }
 /* a DDS whose chain already runs to 1×1: no setting can add to it */
-const ddsFull=e=>{const d=dimsOfEntry(e);return !!d&&mipsOf(e)>=ddsChainMax(d.w,d.h);};
+const ddsFull=e=>{const d=dimsOfEntry(e);return !!d&&mipsOf(e)===ddsChainMax(d.w,d.h)&&!ddsZeroCount(e);};
 function download(bytes,name,mime){
   const blob=bytes instanceof Blob?bytes:new Blob([bytes],{type:mime});
   const a=document.createElement("a");
@@ -4757,6 +4793,8 @@ function download(bytes,name,mime){
 function computeChecks(){
   const w=[];
   const seen=new Map();
+  /* DDS mip chains the game mishandles, one line per kind */
+  const odd16=[],zero=[],two=[],long=[];
   for(const e of state.entries){
     const low=e.name.toLowerCase();
     if(seen.has(low))w.push(["err","Duplicate name: "+e.name+". The game only ever sees the first copy."]);
@@ -4774,6 +4812,15 @@ function computeChecks(){
           const isDxt=fcc===0x31545844||fcc===0x33545844||fcc===0x35545844;
           if(isDxt&&(dw%4||dh%4))
             w.push(["err","DXT size not a multiple of 4 ("+dw+"×"+dh+"), crashes the D3D11 renderer: "+e.name]);
+          const flags=dv.getUint32(8,true),cnt=dv.getUint32(28,true),n=flags&0x20000?cnt:1;
+          if(fcc!==0x30315844&&dw&&dh){             /* a DX10 file never loads at all */
+            if(flags&0x20000&&cnt===0)zero.push(e.name);
+            else{
+              if(n===2&&dw>16&&dh>16)two.push(e.name);
+              if(n>ddsChainMax(dw,dh))long.push(e.name);
+              if(isDxt&&n>1&&!(dw%4||dh%4)&&!dxtMipSizeOk(dw,dh))odd16.push(e.name);
+            }
+          }
         }
       }catch(_){}
     }
@@ -4787,6 +4834,16 @@ function computeChecks(){
   if(longTex.length)w.push(["warn",plural(longTex.length,"texture")+" named past 31 characters. The game keeps texture names in 31, so "
     +(longTex.length===1?"it loads":"they load")+" wrong or not at all: "
     +longTex.slice(0,4).map(e=>e.name).join(", ")+(longTex.length>4?", …":"")]);
+  const names=a=>a.slice(0,4).join(", ")+(a.length>4?", …":"");
+  const them=(a,one,many)=>a.length===1?one:many;
+  if(odd16.length)w.push(["err",plural(odd16.length,"mipmapped DXT texture")+" over 16 pixels with sides that are not multiples of 16. At Medium or Low texture detail the game cannot create "
+    +them(odd16,"it","them")+", which is fatal in Alpine. Resize to a multiple of 16: "+names(odd16)]);
+  if(zero.length)w.push(["err",plural(zero.length,"DDS texture")+" declaring zero mip levels, which the game cannot use. Build mipmaps fixes "
+    +them(zero,"it","them")+": "+names(zero)]);
+  if(two.length)w.push(["warn",plural(two.length,"DDS texture")+" with exactly two levels. Low texture detail skips two, which leaves none, so "
+    +them(two,"it","they")+" may show garbage or crash there. Build mipmaps gives "+them(two,"it","them")+" a full chain: "+names(two)]);
+  if(long.length)w.push(["warn",plural(long.length,"DDS texture")+" with mip levels past where the short side reaches 1. Direct3D 11 drops those, and the legacy renderer never fills them, so "
+    +them(long,"it","they")+" may show junk far away there. Build mipmaps trims "+them(long,"it","them")+": "+names(long)]);
   const modern=state.entries.filter(e=>e.tkey==="png"||e.tkey==="jpg"||e.tkey==="atx").length;
   if(modern)w.push(["warn",plural(modern,"file")+" in PNG, JPEG or ATX format. Alpine Faction 1.4 and newer read these; stock Red Faction, Dash Faction and earlier Alpine builds do not."]);
   let total=align2048(SECTOR+64*state.entries.length);
