@@ -48,12 +48,17 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   round of DXT loss. A TGA gets separate `<name>-mip1.tga` and `-mip2.tga`
   files, named and sized exactly as the game's own loader looks for them
   (read from RF 1.20's bm_read_header): each level half the last, same bit
-  depth, power-of-two textures only, names up to 40 characters. The game
-  builds the smaller levels itself, so these mainly save load time, help
-  the lower texture-quality settings, and give you files to hand-tune.
-  Existing files are never written over: the low-detail textures stock
-  characters use by name (`foo-mip2.tga` with no `-mip1`, or `foo_mip1.tga`)
-  are left exactly as they are.
+  depth, power-of-two textures only. The game builds the smaller levels
+  itself, so these mainly save load time, help the lower texture-quality
+  settings, and give you files to hand-tune. Nothing another file depends
+  on is written over. The low-detail skins that stock characters name
+  directly (`foo-mip2.tga` with no `-mip1`, or `foo_mip1.tga`) are left
+  exactly as they are. A mip that no longer looks like its texture is only
+  replaced if you say so, and a hand-tuned one is never flagged. When you
+  edit a stock texture, its stock mips are made fresh in your VPP, so the
+  old art never shows at a distance.
+- VPP checks flag texture names longer than 31 characters. The game keeps
+  texture names in 32 bytes, so a longer one loads wrong or not at all.
 - Extract opens the native Windows folder picker and unpacks straight
   into the folder you choose.
 

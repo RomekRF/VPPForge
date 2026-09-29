@@ -40,8 +40,9 @@ USING IT
   - Right-click a DDS or TGA for Build mipmaps, or use Tools to do every
     one in the VPP at once. A DDS gets its levels inside the file; a TGA
     gets -mip1 and -mip2 files beside it, the way the game looks for them.
-    Textures already mipmapped are skipped, and existing files are never
-    written over.
+    Textures already mipmapped are skipped. Mip files that no longer
+    match their texture are only replaced if you say so, and the
+    low-detail skins characters use by name are never touched.
   - Arrow keys move through the list, Space plays and pauses an
     animation or a sound, F2 renames, Del removes, Alt Up/Down
     reorders, Ctrl S saves, Ctrl E extracts, Ctrl F filters.
