@@ -3112,7 +3112,7 @@ function atxUsable(atx){
 function atxFrameOf(e){
   const ai=assetIndex();
   if(!ai.frameOf){
-    ai.frameOf=new Map();
+    ai.frameOf=new Map();ai.frameStem=new Map();
     for(const sl of ai.byName.values()){
       const a=sl.own||sl.linked;
       if(!a||a.tkey!=="atx")continue;
@@ -3121,11 +3121,16 @@ function atxFrameOf(e){
       for(const f of x.alphaMask?x.files.concat(x.alphaMask):x.files){
         const t=findTexture(f,{noAtx:true});
         if(t&&!ai.frameOf.has(t))ai.frameOf.set(t,a.name);
+        const st=stemOf(f);
+        if(st&&!ai.frameStem.has(st))ai.frameStem.set(st,a.name);
       }
     }
   }
-  return ai.frameOf.get(e)||null;
+  return e?ai.frameOf.get(e)||null:null;
 }
+/* the ATX with a frame or mask of this name, whatever its extension: a new
+   DDS of that name would become what the game loads for it */
+function atxFrameStem(name){atxFrameOf(null);return assetIndex().frameStem.get(stemOf(name))||null;}
 /* the image the game would show for an ATX: its first frame */
 function atxPixelEntry(atx){
   const frames=atxFrames(atx);
@@ -3698,6 +3703,12 @@ const kindsOf=list=>["tga","png"].filter(k=>list.some(e=>e.tkey===k)).map(k=>k.t
 async function imagesToDds(list,opt){
   opt=opt||{mips:false};
   list=list.filter(toDdsOk);
+  /* a PNG and a TGA of the same name would both become name.dds; the game
+     shows the PNG, so that one is converted and the TGA left alone */
+  const baseOf=x=>x.name.slice(0,x.name.lastIndexOf(".")).toLowerCase();
+  const pngs=new Set(list.filter(x=>x.tkey==="png").map(baseOf));
+  const shadowed=list.filter(x=>x.tkey==="tga"&&pngs.has(baseOf(x)));
+  list=list.filter(x=>!shadowed.includes(x));
   if(!list.length){toast("No TGA or PNG files to convert",true);return;}
   if(imagesToDds._busy)return;
   imagesToDds._busy=true;
@@ -3705,6 +3716,8 @@ async function imagesToDds(list,opt){
   const pre=snapEntries(),ents=state.entries;
   let ok=0,dxt1=0,dxt5=0,deadMips=0,merged=0,chained=0;
   const failed=[],failedEntries=[],newSel=new Set(),done=[];
+  const fixBy=new Map();     /* files a resize would let through: to 4, or 16 */
+  for(const x of shadowed)failed.push(x.name+" (its PNG becomes the same DDS, and the game shows the PNG)");
   try{
     for(let i=0;i<list.length;i++){
       if(state.entries!==ents)break;       /* another file list was put in place */
@@ -3718,12 +3731,16 @@ async function imagesToDds(list,opt){
         if(!state.entries.includes(e))continue;
         /* DXT is 4×4 blocks; D3D requires multiples of 4 or texture creation
            fails in-game (D3D11 fatal error in Alpine/Dash Faction) */
-        if(dec.width%4||dec.height%4)
-          throw new Error(dec.width+"×"+dec.height+" · needs multiples of 4");
-        const fr=atxFrameOf(e);
+        /* the DDS takes over the name, so it becomes whatever an ATX loads
+           for any frame or mask of that name */
+        const fr=atxFrameOf(e)||atxFrameStem(e.name);
         if(fr)throw new Error("a frame of "+fr+", and Alpine turns an ATX down unless every frame has the same size, format and levels");
-        if(opt.mips&&mipCountTo(dec.width,dec.height,opt.minSize||1)>1&&!dxtMipSizeOk(dec.width,dec.height))
-          throw new Error(dec.width+"×"+dec.height+" · "+DXT_MIP_SIZE);
+        const need16=opt.mips&&mipCountTo(dec.width,dec.height,opt.minSize||1)>1&&!dxtMipSizeOk(dec.width,dec.height);
+        if(dec.width%4||dec.height%4){
+          fixBy.set(e,need16?16:4);
+          throw new Error(dec.width+"×"+dec.height+" · needs multiples of 4");
+        }
+        if(need16){fixBy.set(e,16);throw new Error(dec.width+"×"+dec.height+" · "+DXT_MIP_SIZE);}
         const levels=[{w:dec.width,h:dec.height,px:dec.rgba}];
         if(opt.mips){
           const want=mipCountTo(dec.width,dec.height,opt.minSize||1);
@@ -3753,7 +3770,7 @@ async function imagesToDds(list,opt){
         const base=e.name.slice(0,e.name.lastIndexOf("."));
         const nm=base+".dds",low=nm.toLowerCase();
         const dup=state.entries.findIndex(x=>x!==e&&x.name.toLowerCase()===low);
-        if(dup>=0){decodeCache.delete(state.entries[dup].id);state.entries.splice(dup,1);}
+        if(dup>=0){newSel.delete(state.entries[dup].id);decodeCache.delete(state.entries[dup].id);state.entries.splice(dup,1);}
         const ne={name:nm,size:dds.length,offset:null,data:dds,id:nextId++};
         probeInfo(ne);
         state.entries.splice(state.entries.indexOf(e),1,ne);
@@ -3784,9 +3801,8 @@ async function imagesToDds(list,opt){
       +(failed.length?" · "+failed.length+" left as they were":"")+" · Ctrl S to save",failed.length>0);
   }else if(failed.length)toast("Nothing converted · "+failed.length+" left as they were",true);
   if(failed.length){
-    /* sizes a resize can fix: to a multiple of 4, or of 16 for mipmaps */
-    const sixteen=failedEntries.some(x=>{const d=dimsOfEntry(x);return d&&!(d.w%4||d.h%4)&&!dxtMipSizeOk(d.w,d.h);});
-    const odd=failedEntries.filter(x=>{const d=dimsOfEntry(x);return d&&(d.w%4||d.h%4||(opt.mips&&!dxtMipSizeOk(d.w,d.h)));});
+    /* only files refused for their size are offered a resize */
+    const odd=[...fixBy.keys()],sixteen=[...fixBy.values()].includes(16);
     openPop('<h3>Not converted</h3><ul>'
       +failed.map(f=>'<li class="warn">'+esc(f)+"</li>").join("")
       +'</ul><div style="padding:4px 10px 8px;color:var(--text-2);font-size:11px;max-width:300px">DXT compression works in 4×4 blocks, and the game\'s renderer rejects DDS textures whose width or height is not a multiple of 4'
@@ -4132,7 +4148,7 @@ function mipStatus(e){
   if(e.tkey==="dds"){
     const d=dimsOfEntry(e),min=mipMin();
     if(/· DX10/.test(e.info||""))return {na:true,label:"No mipmaps: it has a DX10 header, which Alpine Faction and Dash Faction do not load"};
-    const fr=atxFrameOf(e);
+    const fr=atxFrameOf(e)||atxFrameStem(e.name);
     if(fr)return {na:true,label:"No mipmaps: it is a frame of "+fr+", and Alpine turns an ATX down unless every frame has the same size, format and levels"};
     if(d&&/· DXT/.test(e.info||"")&&!dxtMipSizeOk(d.w,d.h))
       return {na:true,label:"No mipmaps: "+d.w+" × "+d.h+" · "+DXT_MIP_SIZE};
@@ -4556,8 +4572,9 @@ function showResizeDialog(list,opts){
   const $$=id=>ov.querySelector("#"+id);
   const close=()=>{ov.remove();window.removeEventListener("keydown",onKey,true);};
   const onKey=ev=>{
-    if(ev.key==="Escape"){ev.stopPropagation();close();}
-    else if(ev.key==="Enter"){ev.stopPropagation();go();}
+    ev.stopPropagation();                    /* modal: no app shortcut behind it */
+    if(ev.key==="Escape")close();
+    else if(ev.key==="Enter"&&ev.target.tagName!=="BUTTON"){ev.preventDefault();go();}
   };
   window.addEventListener("keydown",onKey,true);
   ov.addEventListener("mousedown",ev=>{if(ev.target===ov)close();});
@@ -4639,6 +4656,11 @@ function showMipDialog(list,mode){
   const convert=mode==="convert";
   list=(list||[]).filter(e=>e&&e.refId==null&&(convert?toDdsOk(e):MIPPABLE.has(e.tkey)));
   if(!list.length){toast(convert?"No TGA or PNG files to convert":"No DDS or TGA textures here",true);return;}
+  if(!convert){
+    const na=list.filter(e=>mipStatus(e).na);
+    list=list.filter(e=>!na.includes(e));
+    if(!list.length){toast(na.length===1?mipStatus(na[0]).label:"None of these can take mipmaps",true);return;}
+  }
   const dds=list.filter(e=>e.tkey==="dds");
   if(!convert&&!dds.length){generateMips(list);return;}
   const one=list.length===1,sample=convert?list[0]:dds[0];
@@ -4667,9 +4689,13 @@ function showMipDialog(list,mode){
   document.body.appendChild(ov);
   const $$=id=>ov.querySelector("#"+id);
   const close=()=>{ov.remove();window.removeEventListener("keydown",onKey,true);};
+  /* modal: no app shortcut acts behind it (a key's own default, like
+     choosing in the list, still happens), and Enter on a focused button is
+     that button's */
   const onKey=ev=>{
-    if(ev.key==="Escape"){ev.stopPropagation();close();}
-    else if(ev.key==="Enter"){ev.stopPropagation();ev.preventDefault();go();}
+    ev.stopPropagation();
+    if(ev.key==="Escape")close();
+    else if(ev.key==="Enter"&&ev.target.tagName!=="BUTTON"){ev.preventDefault();go();}
   };
   window.addEventListener("keydown",onKey,true);
   ov.addEventListener("mousedown",ev=>{if(ev.target===ov)close();});
@@ -4691,18 +4717,20 @@ function showMipDialog(list,mode){
   };
   ov.querySelectorAll("input,select").forEach(el=>el.addEventListener("change",preview));
   function go(){
-    const min=+$$("mpMin").value,mips=on();
+    const min=+$$("mpMin").value,mips=on(),was=mipMin();
     APP_SETTINGS.mipMin=min;
     if(convert)APP_SETTINGS.ddsMips=mips?1:0;
     saveSettings();
     close();
+    /* labels count against the smallest level, even if nothing gets built */
+    if(min!==was){renderPreview();refreshLightbox();}
     if(convert)imagesToDds(list,{mips,minSize:min,smooth:true});
     else generateMips(list,{smooth:true,minSize:min});
   }
   $$("mpCancel").addEventListener("click",close);
   $$("mpGo").addEventListener("click",go);
   preview();
-  $$("mpMin").focus();
+  ($$("mpMin").disabled?$$("mpGo"):$$("mpMin")).focus();
 }
 /* a DDS whose chain already runs to 1×1: no setting can add to it */
 const ddsFull=e=>{const d=dimsOfEntry(e);return !!d&&mipsOf(e)>=ddsChainMax(d.w,d.h);};
@@ -4943,6 +4971,40 @@ function stopMedia(){
    them the only async formats in the app. Their pixels land in the same cache
    as every other decode, so once they are in, everything downstream — the
    viewer, the 3D texture lookup, the resizer — stays synchronous. */
+/* One WebGL context, kept for reading PNG and JPEG pixels back exactly. A
+   2D canvas stores premultiplied alpha: it zeroes the colour under every
+   clear texel and rounds the colour of faint ones, and a DDS made from that
+   gets dark fringes around its cut-outs, which stb_image in the game never
+   shows. null when WebGL is missing or the image is too big for it. */
+let glReader=null;
+function readPixelsExact(bm){
+  const w=bm.width,h=bm.height;
+  try{
+    if(!glReader||glReader.isContextLost())
+      glReader=document.createElement("canvas").getContext("webgl",{premultipliedAlpha:false,antialias:false,depth:false,stencil:false});
+    const gl=glReader;
+    if(!gl)return null;
+    const max=gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    if(w>max||h>max)return null;
+    const t=gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D,t);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL,gl.NONE);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,bm);
+    const fb=gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+    let px=null;
+    if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE){
+      px=new Uint8ClampedArray(w*h*4);
+      gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,px);   /* image row 0 is texture row 0 */
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    gl.deleteFramebuffer(fb);gl.deleteTexture(t);
+    return px;
+  }catch(_){return null;}
+}
 function decodeBitmap(e){
   const c=decodeCache.get(e.id);
   if(c&&c.kind==="bitmap"){
@@ -4952,13 +5014,16 @@ function decodeBitmap(e){
   const blob=new Blob([entryData(e)],{type:e.tkey==="png"?"image/png":"image/jpeg"});
   /* Alpine reads PNG and JPEG with stb_image, which ignores gamma and colour
      profiles, so the browser must not apply them either */
-  return createImageBitmap(blob,{colorSpaceConversion:"none"}).then(bm=>{
+  return createImageBitmap(blob,{colorSpaceConversion:"none",premultiplyAlpha:"none"}).then(bm=>{
     const w=bm.width,h=bm.height;
-    const cv=document.createElement("canvas");
-    cv.width=w;cv.height=h;
-    const ctx=cv.getContext("2d",{willReadFrequently:true});
-    ctx.drawImage(bm,0,0);
-    const px=ctx.getImageData(0,0,w,h).data;
+    let px=readPixelsExact(bm);
+    if(!px){
+      const cv=document.createElement("canvas");
+      cv.width=w;cv.height=h;
+      const ctx=cv.getContext("2d",{willReadFrequently:true});
+      ctx.drawImage(bm,0,0);
+      px=ctx.getImageData(0,0,w,h).data;
+    }
     if(bm.close)bm.close();
     let hasAlpha=false;
     if(e.tkey==="png")for(let i=3;i<px.length;i+=4){if(px[i]<255){hasAlpha=true;break;}}
@@ -5111,7 +5176,7 @@ function renderContent(body,e,big,acts){
         renderImage(body,e,img,meta,big);
         if(MIPPABLE.has(k)&&e.refId==null){
           const ms=mipStatus(e);
-          addAct(IC.mip,ms.label+(k==="dds"?"…":""),()=>k==="dds"?showMipDialog([e],"build"):generateMips([e]));
+          addAct(IC.mip,ms.label+(k==="dds"&&!ms.na&&!ddsFull(e)?"…":""),()=>k==="dds"?showMipDialog([e],"build"):generateMips([e]));
           /* a finished TGA stays live: clicking checks its files against it */
           if((ms.na||(k==="dds"&&ddsFull(e)))&&acts&&acts.lastElementChild)acts.lastElementChild.classList.add("dim");
         }
