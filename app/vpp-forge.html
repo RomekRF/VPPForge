@@ -2759,6 +2759,7 @@ function loadArchive(name,buf){
   if(parsed.truncated)toast("This VPP appears truncated. Some file data may be missing.",true);
   else toast("Opened "+name+" · "+plural(state.entries.length,"file"));
   refreshAll();
+  return true;
 }
 function newArchive(){
   if(batchBusy())return;
@@ -4132,7 +4133,7 @@ function rebuildMipChain(e,chain,smooth){
   if(!chain.length)return r;
   const img=getDecoded(e,"tga"),w=img.width,h=img.height,bpp=img.bpp;
   const can=isPow2(w)&&isPow2(h)&&(bpp===24||bpp===32);
-  let prev=img.rgba,pw=w,ph=h;
+  let prev=img.rgba,pw=w,ph=h,last=null,lastN=0;
   chain.forEach((x,i)=>{
     const n=i+1,mw=w>>n,mh=h>>n,at=state.entries.indexOf(x);
     if(at<0)return;
@@ -4140,8 +4141,25 @@ function rebuildMipChain(e,chain,smooth){
     const px=resamplePixels(prev,pw,ph,mw,mh,smooth);
     prev=px;pw=mw;ph=mh;
     x.data=encodeTga(mw,mh,px,bpp===32);x.size=x.data.length;x.offset=null;
-    decodeCache.delete(x.id);probeInfo(x);r.rebuilt++;
+    decodeCache.delete(x.id);probeInfo(x);r.rebuilt++;last=x;lastN=n;
   });
+  /* The levels fit the new size. A file past the last one that now fits
+     too (a low-detail skin meshes name directly, say) would be read as the
+     next level and tied to this chain, so the last level goes and the gap
+     stays open, as planTgaMips keeps it. A linked file not read yet counts. */
+  if(last){
+    assetIdx=null;
+    const nm=tgaMipName(e,lastN+1),sl=nm.length<=TGA_MIP_NAME_MAX?nameSlot(nm):{},x=sl.own||sl.linked;
+    if(x){
+      if(!x.info&&x.data)probeInfo(x);
+      const xd=dimsOfEntry(x);
+      if(xd?xd.w===w>>(lastN+1)&&xd.h===h>>(lastN+1)&&bppOf(x)===bpp:x.refId!=null&&!x.data){
+        const at=state.entries.indexOf(last);
+        if(at>=0){state.entries.splice(at,1);decodeCache.delete(last.id);r.rebuilt--;r.removed++;}
+      }
+    }
+    assetIdx=null;
+  }
   return r;
 }
 const mipsOf=e=>{const m=/· (\d+) mips/.exec(e.info||"");return m?+m[1]:1;};
@@ -6346,27 +6364,33 @@ document.querySelector("#colHead").addEventListener("click",ev=>{
   renderRows();
 });
 /* A renamed texture takes its mip files along, or the game would put them
-   on the stock texture of the old name. A level that cannot follow (the
-   name would be too long or is taken, the new name shares its stem with
-   another texture, or the file is no longer a TGA) goes, and every level
-   after it, since the game stops at the first missing one. */
+   on the stock texture of the old name. They stay theirs only while the
+   texture is still a TGA of up to 31 characters whose first-dot stem no
+   other texture shares. With a new stem they move only onto a clean slate:
+   no file of any level's name there yet, in this VPP or a linked one (a
+   stock low-detail skin, or a stock chain, which Build mipmaps knows how
+   to refresh). Otherwise they all go, and Build mipmaps makes them again. */
 function followRename(e,oldName,chain){
   const r={moved:0,removed:0};
-  if(!chain.length||mipStem(e.name).toLowerCase()===mipStem(oldName).toLowerCase())return r;
+  if(!chain.length)return r;
   assetIdx=null;
-  const low=e.name.toLowerCase();
+  const low=e.name.toLowerCase(),stem=mipStem(low),same=stem===mipStem(oldName).toLowerCase();
   let keep=e.tkey==="tga"&&e.name.length<=TEX_NAME_MAX
-    &&!(assetIndex().byMipStem.get(mipStem(low))||[]).some(x=>x.name.toLowerCase()!==low);
-  chain.forEach((x,i)=>{
-    const to=keep?tgaMipName(e,i+1):null;
-    if(keep&&to.length<=TGA_MIP_NAME_MAX&&!state.entries.some(y=>y!==x&&y.name.toLowerCase()===to.toLowerCase())){
-      x.name=to;decodeCache.delete(x.id);r.moved++;
-    }else{
-      keep=false;
-      const at=state.entries.indexOf(x);
-      if(at>=0){state.entries.splice(at,1);decodeCache.delete(x.id);state.sel.delete(x.id);r.removed++;}
-    }
-  });
+    &&!(assetIndex().byMipStem.get(stem)||[]).some(x=>x.name.toLowerCase()!==low);
+  if(keep&&same)return r;                 /* the files already carry the right names */
+  const d=dimsOfEntry(e);
+  if(keep)for(let k=1;d&&Math.min(d.w>>k,d.h>>k)>=1;k++){
+    const nm=tgaMipName(e,k);
+    if(nm.length>TGA_MIP_NAME_MAX)break;
+    const sl=nameSlot(nm);
+    if(sl.own||sl.linked){keep=false;break;}
+  }
+  for(let i=0;i<chain.length;i++){
+    const x=chain[i];
+    if(keep){x.name=tgaMipName(e,i+1);decodeCache.delete(x.id);r.moved++;continue;}
+    const at=state.entries.indexOf(x);
+    if(at>=0){state.entries.splice(at,1);decodeCache.delete(x.id);state.sel.delete(x.id);r.removed++;}
+  }
   assetIdx=null;
   return r;
 }
@@ -6395,7 +6419,7 @@ function beginRename(id){
           pushUndo();e.name=nv;state.dirty=true;decodeCache.delete(e.id);probeInfo(e);
           const f=followRename(e,old,chain);
           if(f.moved||f.removed)toast("Renamed"+(f.moved?" · "+plural(f.moved,"mip file")+" renamed to match":"")
-            +(f.removed?" · "+plural(f.removed,"mip file")+" removed, since "+(f.moved?"they":"it")+" could not follow":""));
+            +(f.removed?" · "+plural(f.removed,"mip file")+" removed, since "+(f.removed===1?"it":"they")+" could not follow":""));
         }
       }
     }
@@ -6686,8 +6710,11 @@ let deferredInstall=null;
       const files=[];
       for(const h of params.files){try{files.push(await h.getFile());}catch(_){}}
       const vpp=files.find(f=>/\.vpp$/i.test(f.name));
-      /* loadArchive turns it down while a batch runs; addFiles waits one out */
-      if(vpp)loadArchive(vpp.name,await vpp.arrayBuffer());
+      const buf=vpp?await vpp.arrayBuffer():null;
+      /* while a batch runs, or when the VPP did not open, the rest must not
+         land in whatever VPP is open instead */
+      if(batchBusy()){toast("Still working · open it again when it finishes",true);return;}
+      if(vpp&&!loadArchive(vpp.name,buf))return;
       const rest=files.filter(f=>f!==vpp);
       if(rest.length)addFiles(rest);
     });
