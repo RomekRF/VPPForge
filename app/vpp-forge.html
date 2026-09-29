@@ -4152,8 +4152,8 @@ function mipStatus(e){
     const min=mipMin(),p=ddsPlan(e,min),d=dimsOfEntry(e),have=mipsOf(e);
     if(p.na)return {na:true,label:"No mipmaps: "+p.na};
     if(p.fixCount)return {need:true,label:"Fix the mipmap count (the file declares zero levels)"};
-    if(p.trim)return {need:true,label:p.trim===1?"Drop the second mipmap level (two leave none at Low texture detail)"
-                                                 :"Trim the mipmap chain to the "+p.trim+" levels the game uses ("+have+" now)"};
+    if(p.trim)return {need:true,label:p.low?"Drop the second mipmap level (two leave none at Low texture detail)"
+                                           :"Trim the mipmap chain to the "+plural(p.trim,"level")+" the game uses ("+have+" now)"};
     if(p.done)return d&&have===1
       ?{done:true,label:"No mipmaps to add: "+d.w+" × "+d.h+" is already at the smallest level ("+mipMinLabel(min)+")"}
       :{done:true,label:"Mipmaps complete ("+have+" levels)"};
@@ -4404,7 +4404,7 @@ function ddsPlan(e,min){
   if(h.zero)return want>1&&canChain?{build:want,zero:true}:{fixCount:true};
   if(h.dxt&&!dxtMipSizeOk(h.w,h.h))return {na:h.w+" × "+h.h+" · "+DXT_MIP_SIZE};
   if(have>cap)return {trim:cap};
-  if(have===2&&h.w>16&&h.h>16)return want>=3&&canChain?{build:want}:{trim:1};
+  if(have===2&&h.w>16&&h.h>16)return want>=3&&canChain?{build:want}:{trim:1,low:true};
   return have<want?{build:want}:{done:true};
 }
 /* Keep the first `levels` levels and drop the rest, byte for byte: nothing
@@ -4453,7 +4453,7 @@ async function mipEntry(e,opt){
     return {bytes:fixed,levels:1,was:1,fixedCount:true};
   }
   const img=await pixelsOf(e);
-  if(p.trim)return {bytes:ddsTrim(entryData(e),img,p.trim),levels:p.trim,was:img.mips,trimmed:true};
+  if(p.trim)return {bytes:ddsTrim(entryData(e),img,p.trim),levels:p.trim,was:img.mips,trimmed:!p.low,dropped:!!p.low};
   if(p.done)return {already:true,levels:img.mips};
   const want=p.build||mipCountTo(img.width,img.height,opt.minSize??mipMin());
   if(ddsIsRaw(img)){
@@ -4482,7 +4482,7 @@ async function generateMips(list,opt){
   generateMips._busy=true;
   const prog=progressOverlay(list.length===1?"Building mipmaps":"Building mipmaps for "+list.length+" textures");
   let pre=null;
-  let ok=0,already=0,grew=0,files=0,refreshed=0,replaced=0,declined=0,trimmed=0,countFixed=0;
+  let ok=0,already=0,grew=0,files=0,refreshed=0,replaced=0,declined=0,trimmed=0,countFixed=0,dropped=0;
   const failed=[],notes=[],plans=[];
   try{
     /* decide everything first, changing nothing */
@@ -4533,6 +4533,7 @@ async function generateMips(list,opt){
         const r=p.dds;
         if(r.trimmed)trimmed++;
         if(r.fixedCount)countFixed++;
+        if(r.dropped)dropped++;
         grew+=r.bytes.length-e.size;
         e.data=r.bytes;e.size=r.bytes.length;e.offset=null;
         decodeCache.delete(e.id);
@@ -4583,10 +4584,13 @@ async function generateMips(list,opt){
     state.dirty=true;
     refreshAll();
     refreshLightbox();
-    toast("Mipmapped "+plural(ok,"texture")+(files?" · "+plural(files,"mip file")+" added":"")
+    /* a count fix or a dropped level leaves a file with no mipmaps */
+    const plain=countFixed+dropped;
+    toast((ok>plain?"Mipmapped "+plural(ok-plain,"texture"):"Updated "+plural(ok,"texture"))+(files?" · "+plural(files,"mip file")+" added":"")
       +(replaced?" · "+replaced+" replaced":"")
       +(trimmed?" · "+plural(trimmed,"chain")+" trimmed to the levels the game uses":"")
       +(countFixed?" · "+plural(countFixed,"zero mipmap count")+" fixed":"")
+      +(dropped?" · "+plural(dropped,"second mipmap level")+" dropped, since two leave none at Low texture detail":"")
       +(refreshed?" · "+refreshed+" made fresh from the edited texture":"")
       +(grew?" · "+fmtBytes(Math.abs(grew))+(grew<0?" smaller":" larger"):"")
       +(declined?" · kept "+plural(declined,"older mip file")+" as asked":"")
@@ -4786,8 +4790,8 @@ function showMipDialog(list,mode){
     const min=+$$("mpMin").value,n=mipCountTo(d.w,d.h,min),last=mipDims(d.w,d.h,n-1);
     const extra=n!==mipCountTo(d.w,d.h,min,true);
     const have=convert?1:mipsOf(sample),p=convert?null:ddsPlan(sample,min);
-    if(p&&p.trim){$$("mpOut").textContent=head+(p.trim===1?"one level: two leave none at Low texture detail"
-      :"trimmed to the "+p.trim+" levels the game uses (it has "+have+")");return;}
+    if(p&&p.trim){$$("mpOut").textContent=head+(p.low?"one level: two leave none at Low texture detail"
+      :"trimmed to the "+plural(p.trim,"level")+" the game uses (it has "+have+")");return;}
     if(p&&p.fixCount){$$("mpOut").textContent=head+"one level, with the zero mipmap count it declares fixed";return;}
     $$("mpOut").textContent=head+(n===1?"no smaller level at this setting"
       :plural(n,"level")+", down to "+last.w+" × "+last.h)
