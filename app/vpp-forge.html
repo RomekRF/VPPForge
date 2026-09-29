@@ -2964,7 +2964,13 @@ function assetIndex(){
     }
   };
   for(const e of state.entries)add(e,true);
-  for(const r of state.refs)for(const e of r.entries)add(e,false);
+  /* The open VPP's own file on disk, linked along with the game folder, is
+     not a stock copy of anything: a save writes over it, and after one its
+     listing no longer matches the file. What it holds is the open VPP. */
+  for(const r of state.refs){
+    if(state.saveId!=null&&r.srcId===state.saveId)continue;
+    for(const e of r.entries)add(e,false);
+  }
   assetIdx={byName,byStem,byMipStem};
   Promise.resolve().then(()=>{assetIdx=null;});
   return assetIdx;
