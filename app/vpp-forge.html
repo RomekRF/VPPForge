@@ -185,6 +185,7 @@ body:not(.theme-dark) .tnode.on .tact:hover{background:rgba(255,255,255,.22); co
 #marquee{position:fixed; z-index:80; border:1px solid var(--accent); background:var(--accent-soft); pointer-events:none; display:none}
 /* browsing a linked VPP: read-only, visually set apart from your own files */
 body.browsing-ref #rows .row .fn{color:var(--text-2)}
+body.browsing-ref .tnode .tact.tdds,body.browsing-ref .tnode .tact.tmip{display:none}   /* they change the open VPP, not the one browsed */
 body.browsing-ref #colHead{background:var(--accent-soft); color:var(--text-2)}
 body.browsing-ref #colHead::after{content:"linked · read-only"; position:absolute; right:10px; font:400 10px var(--mono); color:var(--text-3)}
 body.browsing-ref #colHead{position:relative}
@@ -226,7 +227,7 @@ body.loose-file #prevBody{padding:0 10px 10px}
   border:1px solid var(--border-2); border-radius:var(--r-s); padding:0 6px; font:400 12px var(--mono)}
 #rsdlg select, #mpdlg select{font-family:var(--sans)}
 #rsdlg input[type=number]:focus, #rsdlg select:focus, #mpdlg select:focus{outline:none; border-color:var(--accent)}
-#mpdlg select:disabled{opacity:.5}
+#mpdlg select{max-width:100%; min-width:0}   /* a narrow window shortens the list rather than spilling out */
 #rsdlg label, #mpdlg label{display:inline-flex; align-items:center; gap:5px; font:400 12px var(--sans); color:var(--text-2)}
 #rsdlg .rsrow, #mpdlg .rsrow{display:flex; align-items:center; gap:10px; padding:5px 0}
 #rsdlg .rsrow > .lb, #mpdlg .rsrow > .lb{width:96px; flex:none; font:500 12px var(--sans); color:var(--text)}
@@ -2595,25 +2596,25 @@ function typeKeyOf(n){
   return "other";
 }
 const TYPE_META={
-  rfl:  {tree:"Levels · RFL",       list:"RF level",       color:"var(--c-level)", disk:"#d0521c", cat:"level"},
-  tga:  {tree:"Textures · TGA",     list:"TGA graphic",    color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
-  vbm:  {tree:"Animations · VBM",   list:"Animation",      color:"var(--c-anim)",  disk:"#a58cc8", cat:"anim"},
-  v3m:  {tree:"Static meshes · V3M",list:"Static mesh",    color:"var(--c-model)", disk:"#6ec2a8", cat:"model"},
-  v3c:  {tree:"Characters · V3C",   list:"Character mesh", color:"var(--c-model)", disk:"#6ec2a8", cat:"model"},
-  audio:{tree:"Audio",              list:"Audio",          color:"var(--c-audio)", disk:"#8ba86e", cat:"audio"},
-  text: {tree:"Tables + text",      list:"Text",           color:"var(--c-text)",  disk:"#c9a35a", cat:"text"},
-  pcx:  {tree:"Images · PCX",       list:"PCX graphic",    color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
-  dds:  {tree:"Textures · DDS",     list:"DDS texture",    color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
-  png:  {tree:"Textures · PNG",     list:"PNG graphic",    color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
-  jpg:  {tree:"Textures · JPEG",    list:"JPEG graphic",   color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
-  atx:  {tree:"Alpine textures · ATX",list:"Alpine texture",color:"var(--c-text)", disk:"#c9a35a", cat:"text"},
-  vf:   {tree:"Fonts · VF",         list:"RF font",        color:"var(--c-text)",  disk:"#c9a35a", cat:"font"},
-  rfa:  {tree:"Character anims · RFA",list:"Character animation",color:"var(--c-anim)",disk:"#a58cc8", cat:"rfa"},
-  mvf:  {tree:"Motions · MVF",      list:"Motion capture", color:"var(--c-anim)",  disk:"#a58cc8", cat:"rfa"},
-  vfx:  {tree:"Effects · VFX",      list:"Effect",         color:"var(--c-model)", disk:"#6ec2a8", cat:"model"},
-  ani:  {tree:"FS animations · ANI",list:"FS animation",   color:"var(--c-anim)",  disk:"#a58cc8", cat:"bin"},
-  pof:  {tree:"FS models · POF",    list:"FS model",       color:"var(--c-model)", disk:"#6ec2a8", cat:"bin"},
-  other:{tree:"Other files",        list:"Data",           color:"var(--c-bin)",   disk:"#57524a", cat:"bin"},
+  rfl:  {tree:"Levels · RFL",         list:"RF Level",            color:"var(--c-level)", disk:"#d0521c", cat:"level"},
+  tga:  {tree:"Textures · TGA",       list:"TGA Graphic",         color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
+  vbm:  {tree:"Animations · VBM",     list:"Animation",           color:"var(--c-anim)",  disk:"#a58cc8", cat:"anim"},
+  v3m:  {tree:"Static Meshes · V3M",  list:"Static Mesh",         color:"var(--c-model)", disk:"#6ec2a8", cat:"model"},
+  v3c:  {tree:"Characters · V3C",     list:"Character Mesh",      color:"var(--c-model)", disk:"#6ec2a8", cat:"model"},
+  audio:{tree:"Audio",                list:"Audio",               color:"var(--c-audio)", disk:"#8ba86e", cat:"audio"},
+  text: {tree:"Tables + Text",        list:"Text",                color:"var(--c-text)",  disk:"#c9a35a", cat:"text"},
+  pcx:  {tree:"Images · PCX",         list:"PCX Graphic",         color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
+  dds:  {tree:"Textures · DDS",       list:"DDS Texture",         color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
+  png:  {tree:"Textures · PNG",       list:"PNG Graphic",         color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
+  jpg:  {tree:"Textures · JPEG",      list:"JPEG Graphic",        color:"var(--c-image)", disk:"#7c9fb6", cat:"image"},
+  atx:  {tree:"Alpine Textures · ATX",list:"Alpine Texture",      color:"var(--c-text)",  disk:"#c9a35a", cat:"text"},
+  vf:   {tree:"Fonts · VF",           list:"RF Font",             color:"var(--c-text)",  disk:"#c9a35a", cat:"font"},
+  rfa:  {tree:"Character Anims · RFA",list:"Character Animation", color:"var(--c-anim)",  disk:"#a58cc8", cat:"rfa"},
+  mvf:  {tree:"Motions · MVF",        list:"Motion Capture",      color:"var(--c-anim)",  disk:"#a58cc8", cat:"rfa"},
+  vfx:  {tree:"Effects · VFX",        list:"Effect",              color:"var(--c-model)", disk:"#6ec2a8", cat:"model"},
+  ani:  {tree:"FS Animations · ANI",  list:"FS Animation",        color:"var(--c-anim)",  disk:"#a58cc8", cat:"bin"},
+  pof:  {tree:"FS Models · POF",      list:"FS Model",            color:"var(--c-model)", disk:"#6ec2a8", cat:"bin"},
+  other:{tree:"Other Files",          list:"Data",                color:"var(--c-bin)",   disk:"#57524a", cat:"bin"},
 };
 const EXPANDABLE=new Set(["image","anim","model","text","level","bin","font","rfa"]);
 const TYPE_ICON={
@@ -4749,8 +4750,12 @@ function showMipDialog(list,mode){
   ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
   const row=(lb,inner)=>'<div class="rsrow"><div class="lb">'+lb+'</div><div class="in">'+inner+'</div></div>';
   const note=t=>'<p style="color:var(--text-3);font-size:11px;margin-top:6px">'+t+'</p>';
-  const opts=MIP_MIN_SIZES.map(v=>'<option value="'+v+'"'+(v===mipMin()?" selected":"")+'>'
-    +(v>1?v+" × "+v:"1 × 1 · the full chain")+'</option>').join("");
+  /* a conversion asks one question, mipmaps or not and how far, with
+     None first so turning them off is in plain sight */
+  const pickMin=!convert||ddsMipsOnConvert();
+  const opts=(convert?'<option value="0"'+(pickMin?"":" selected")+'>None · one level, no mipmaps</option>':"")
+    +MIP_MIN_SIZES.map(v=>'<option value="'+v+'"'+(pickMin&&v===mipMin()?" selected":"")+'>'
+      +(convert?"Down to ":"")+(v>1?v+" × "+v:"1 × 1 · the full chain")+'</option>').join("");
   ov.innerHTML='<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);max-width:520px;width:calc(100% - 48px);padding:22px 26px">'
     +'<h2 style="font-size:15px;margin-bottom:4px">'
       +(convert?(one?"Replace with DDS":"Replace "+list.length+" "+kindsOf(list)+" with DDS")
@@ -4759,10 +4764,9 @@ function showMipDialog(list,mode){
       +(convert?(one?esc(list[0].name)+' · ':'')+'Opaque textures become DXT1, ones with alpha DXT5. Both sides must be multiples of 4.'
                :(one?esc(list[0].name):plural(dds.length,"DDS file")+(list.length>dds.length?" and "+plural(list.length-dds.length,"TGA"):""))
                 +' · the levels go inside each DDS.')+'</p>'
-    +(convert?row("Mipmaps",'<label><input type="checkbox" id="mpOn"'+(ddsMipsOnConvert()?" checked":"")+'> build them into the DDS</label>'):"")
-    +row("Smallest level",'<select id="mpMin">'+opts+'</select>')
+    +row(convert?"Mipmaps":"Smallest level",'<select id="mpMin">'+opts+'</select>')
     +'<div id="mpOut" style="margin-top:10px;font:400 11px var(--mono);color:var(--text-2);min-height:15px"></div>'
-    +(convert&&list.some(e=>e.tkey==="tga")?note("A TGA's own -mip files go into the DDS where they still match it, so hand-tuned levels stay, and are then removed."):"")
+    +(convert&&list.some(e=>e.tkey==="tga")?note("With mipmaps, a TGA's own -mip files go into the DDS where they still match it, so hand-tuned levels stay. Either way they are removed, since the game reads the DDS instead."):"")
     +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
     +'<button class="btn outline" id="mpCancel">Cancel</button>'
     +'<button class="btn primary" id="mpGo">'+(convert?"Replace":"Build")+'</button></div></div>';
@@ -4780,9 +4784,8 @@ function showMipDialog(list,mode){
   };
   window.addEventListener("keydown",onKey,true);
   ov.addEventListener("mousedown",ev=>{if(ev.target===ov)close();});
-  const on=()=>!convert||$$("mpOn").checked;
+  const on=()=>!convert||$$("mpMin").value!=="0";
   const preview=()=>{
-    $$("mpMin").disabled=!on();
     const d=dimsOfEntry(sample);
     if(!d){$$("mpOut").textContent="";return;}
     const head=(one?"":sample.name+" · ")+d.w+" × "+d.h+" → ";
@@ -4802,19 +4805,19 @@ function showMipDialog(list,mode){
   ov.querySelectorAll("input,select").forEach(el=>el.addEventListener("change",preview));
   function go(){
     const min=+$$("mpMin").value,mips=on(),was=mipMin();
-    APP_SETTINGS.mipMin=min;
+    if(mips)APP_SETTINGS.mipMin=min;               /* None keeps the level chosen last */
     if(convert)APP_SETTINGS.ddsMips=mips?1:0;
     saveSettings();
     close();
     /* labels count against the smallest level, even if nothing gets built */
-    if(min!==was){renderPreview();refreshLightbox();}
+    if(mips&&min!==was){renderPreview();refreshLightbox();}
     if(convert)imagesToDds(list,{mips,minSize:min,smooth:true});
     else generateMips(list,{smooth:true,minSize:min});
   }
   $$("mpCancel").addEventListener("click",close);
   $$("mpGo").addEventListener("click",go);
   preview();
-  ($$("mpMin").disabled?$$("mpGo"):$$("mpMin")).focus();
+  $$("mpMin").focus();
 }
 /* a DDS whose chain already runs to 1×1: no setting can add to it */
 const ddsFull=e=>!!ddsPlan(e,1).done;
@@ -4922,6 +4925,7 @@ function renderTree(){
   for(const e of activeEntries())counts.set(e.tkey,(counts.get(e.tkey)||0)+1);
   const order=["rfl","tga","dds","png","jpg","pcx","vbm","v3m","v3c","rfa","mvf","vf","vfx","atx","audio","text","ani","pof","other"];
   const IC_SEL='<svg viewBox="0 0 24 24"><path d="M4 12.5l5 5 11-11"/></svg>';
+  const IC_MIP='<svg viewBox="0 0 24 24"><rect x="3" y="4" width="11" height="11" rx="1.5"/><rect x="16" y="4" width="5.5" height="5.5" rx="1"/><rect x="16" y="11.5" width="3" height="3" rx="0.7"/><path d="M4.5 19.5h8"/></svg>';
   const IC_DDS='<svg viewBox="0 0 24 24"><path d="M8 3L4 7l4 4M4 7h13M16 21l4-4-4-4M20 17H7"/></svg>';
   function selectType(k){
     state.typeFilter=k;
@@ -4932,7 +4936,7 @@ function renderTree(){
   const all=document.createElement("div");
   all.className="tnode all"+(state.typeFilter||viewingRef()?"":" on");
   all.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">'
-    +(viewingRef()?esc(state.refs[state.viewRef].name):"All files")
+    +(viewingRef()?esc(state.refs[state.viewRef].name):"All Files")
     +'</span><button class="tact tsel" title="Select all files">'+IC_SEL+'</button><span class="cnt">'+activeEntries().length+'</span>';
   all.addEventListener("click",()=>{state.viewRef=null;state.typeFilter=null;state.sel.clear();refreshList();renderPreview();});
   all.querySelector(".tact").addEventListener("click",ev=>{ev.stopPropagation();selectType(null);});
@@ -4943,9 +4947,12 @@ function renderTree(){
     d.className="tnode"+(state.typeFilter===k?" on":"");
     d.innerHTML=typeIcon(TYPE_META[k].cat)+'<span class="lbl">'+esc(TYPE_META[k].tree)+'</span>'
       +(TO_DDS.has(k)?'<button class="tact tdds" title="Replace all '+k.toUpperCase()+' with DDS… (DXT1 or DXT5, with or without mipmaps)">'+IC_DDS+'</button>':"")
+      +(k==="dds"?'<button class="tact tmip" title="Build mipmaps for every DDS…">'+IC_MIP+'</button>':"")
       +'<button class="tact tsel" title="Select all of this type">'+IC_SEL+'</button><span class="cnt">'+counts.get(k)+'</span>';
     d.addEventListener("click",()=>{state.typeFilter=state.typeFilter===k?null:k;refreshList();});
-    d.querySelector(".tact:not(.tdds)").addEventListener("click",ev=>{ev.stopPropagation();selectType(k);});
+    d.querySelector(".tsel").addEventListener("click",ev=>{ev.stopPropagation();selectType(k);});
+    const mipB=d.querySelector(".tmip");
+    if(mipB)mipB.addEventListener("click",ev=>{ev.stopPropagation();showMipDialog(state.entries.filter(e=>e.tkey==="dds"),"build");});
     const dds=d.querySelector(".tdds");
     if(dds)dds.addEventListener("click",ev=>{ev.stopPropagation();showMipDialog(state.entries.filter(e=>e.tkey===k),"convert");});
     t.appendChild(d);
@@ -4955,7 +4962,7 @@ function renderTree(){
     const hd=document.createElement("div");
     hd.className="es-h";
     hd.style.cssText="margin:8px 0 3px 7px";
-    hd.textContent="Linked for previews";
+    hd.textContent="Linked for Previews";
     t.appendChild(hd);
     state.refs.forEach((r,i)=>{
       const d=document.createElement("div");
