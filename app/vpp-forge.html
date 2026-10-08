@@ -176,7 +176,9 @@ body.flip #sidebar{border-right:none; border-left:1px solid var(--border)}
   background:none; color:var(--text-3); cursor:pointer; padding:0;
   align-items:center; justify-content:center; opacity:.75;
 }
-.tnode .tact.tsel{display:inline-flex}
+.tnode .tact.tsel{display:inline-flex; width:auto; min-width:18px; padding:0 3px; gap:4px}
+.tnode .tact .tx{display:none; font:500 11px var(--sans); white-space:nowrap}
+.tnode:hover .tact .tx{display:inline}   /* the words appear with the row's other buttons */
 .tnode:hover .tact{display:inline-flex}
 .tnode .tact:hover{background:var(--surface-2); color:var(--text); opacity:1}
 .tnode.on .tact{color:inherit}
@@ -4955,7 +4957,8 @@ function renderTree(){
   const counts=new Map();
   for(const e of activeEntries())counts.set(e.tkey,(counts.get(e.tkey)||0)+1);
   const order=["rfl","tga","dds","png","jpg","pcx","vbm","v3m","v3c","rfa","mvf","vf","vfx","atx","audio","text","ani","pof","other"];
-  const IC_SEL='<svg viewBox="0 0 24 24"><path d="M4 12.5l5 5 11-11"/></svg>';
+  /* a ticked box, so it reads as an action rather than a status tick */
+  const IC_SEL='<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg><span class="tx">Select all</span>';
   const IC_MIP='<svg viewBox="0 0 24 24"><rect x="3" y="4" width="11" height="11" rx="1.5"/><rect x="16" y="4" width="5.5" height="5.5" rx="1"/><rect x="16" y="11.5" width="3" height="3" rx="0.7"/><path d="M4.5 19.5h8"/></svg>';
   const IC_DDS='<svg viewBox="0 0 24 24"><path d="M8 3L4 7l4 4M4 7h13M16 21l4-4-4-4M20 17H7"/></svg>';
   function selectType(k){
