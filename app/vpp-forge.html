@@ -331,6 +331,7 @@ body.theme-dark .row:hover{background:rgba(255,255,255,.06)}
 body.theme-dark .row.sel{background:rgba(208,82,28,.30); border-left-color:var(--accent-hover)}
 body.theme-dark .row.sel:hover{background:rgba(208,82,28,.38)}
 body.theme-dark .row.sel .tp,body.theme-dark .row.sel .info,body.theme-dark .row.sel .sz{color:var(--text)}
+body.theme-dark .row.sel .fn .hit{color:#fff; text-decoration:underline}   /* orange on the orange fill was too faint */
 .row .nm{display:flex; align-items:center; gap:6px; min-width:0}
 .ficon{width:14px;height:14px;flex:none;display:inline-flex}
 .ficon svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
@@ -346,8 +347,20 @@ body:not(.theme-dark) .row.sel .sz,
 body:not(.theme-dark) .row.sel .tp,
 body:not(.theme-dark) .row.sel .info{color:rgba(255,255,255,.82)}
 body:not(.theme-dark) .row.sel .fn .hit{color:#fff; text-decoration:underline}
+body:not(.theme-dark).browsing-ref #rows .row.sel .fn{color:#fff}   /* the linked VPP's grey names, on the blue */
 body:not(.theme-dark) .tnode.on{background:var(--accent); color:#fff}
 body:not(.theme-dark) .tnode.on .cnt{color:rgba(255,255,255,.8)}
+.tnode .ficon.mute{color:var(--text-3)}
+.tnode .lbl.mute{color:var(--text-2)}
+.tnode.on .ficon.mute,.tnode.on .lbl.mute{color:inherit}
+/* Windows contrast themes drop the fills and draw every row's bar, so
+   selection gets the system highlight there */
+@media (forced-colors:active){
+  .row{border-left-color:Canvas}
+  body .row.sel,body .tnode.on{forced-color-adjust:none; background:Highlight !important; color:HighlightText !important; border-left-color:Highlight !important}
+  .row.sel *,.tnode.on *{color:HighlightText !important}
+  .row:hover,.tnode:hover{outline:1px solid CanvasText; outline-offset:-1px}
+}
 @media (max-width:1150px){
   #colHead,#rows .row{grid-template-columns:minmax(0,1.4fr) 88px 70px}
   #colHead .inf,.row .info{display:none}
@@ -430,16 +443,20 @@ body.dragging #dropCard{border-color:var(--accent); background:var(--accent-soft
 #pop td:last-child{text-align:right; font-family:var(--mono); color:var(--text); white-space:nowrap}
 #pop tr:last-child td{border-bottom:none}
 /* notifications sit in the top bar's free space (placeToast); fixed and
-   above the lightbox, which covers the bar */
+   above the lightbox, which covers the bar. They never take a click, so
+   nothing under one is ever blocked. */
 #toast{
-  position:fixed; z-index:120; top:4px; left:50%; height:25px; box-sizing:border-box;
+  position:fixed; z-index:120; top:4px; left:0; height:25px; box-sizing:border-box;
   display:flex; align-items:center; gap:7px; padding:0 12px; border-radius:var(--r);
   background:var(--raised); border:1px solid var(--border-3); box-shadow:var(--shadow);
   font:500 12px var(--sans); color:var(--text); opacity:0; pointer-events:none;
   white-space:nowrap; transition:opacity .14s;
 }
-#toast.show{opacity:1; pointer-events:auto}
-#toastMsg{min-width:0; overflow:hidden; text-overflow:ellipsis}
+#toast.show{opacity:1}
+/* too long for the bar: under it, on as many lines as it takes */
+#toast.wrap{height:auto; min-height:25px; padding:4px 12px; white-space:normal; align-items:flex-start}
+#toast.wrap svg.i{margin-top:1px}
+#toastMsg{min-width:0; overflow-wrap:anywhere; line-height:16px}
 #toast svg.i{flex:none}
 #toast svg.i{color:var(--ok)} #toast.e svg.i{color:var(--err)}
 #dropVeil{
@@ -2651,38 +2668,59 @@ const sect=s=>s===0?0:Math.ceil(s/SECTOR);
 const esc=s=>s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const plural=(n,w)=>n+" "+w+(n===1?"":"s");
 const baseName=n=>{const i=n.lastIndexOf(".");return i>0?n.slice(0,i):n;};
-/* Centre the notification in the top bar's free space, between the VPP
-   name and the buttons on the right. Too little room there, and it sits
-   just under the bar instead. A long message is cut short with its full
-   text on hover. */
+/* Centre the notification in the free space of the bar on top: the title
+   bar between the VPP name and the buttons on the right, or the full
+   view's bar while that is open. A message too long for that space goes
+   just under the toolbar (or the full view's bar) instead, wrapping onto
+   more lines rather than being cut short. */
 function placeToast(){
-  const t=$("toast"),bar=$("titlebar").getBoundingClientRect();
-  const from=$("docChip").getBoundingClientRect().right+12;
-  const to=document.querySelector("#titlebar .tb-actions").getBoundingClientRect().left-12;
-  t.style.maxWidth="";
-  const room=to-from;
-  if(room>=220){
-    t.style.maxWidth=room+"px";
-    const w=Math.min(t.offsetWidth,room);
+  const t=$("toast"),R=el=>el.getBoundingClientRect();
+  const lb=$("lightbox").classList.contains("open");
+  const bar=R(lb?$("lbBar"):$("titlebar"));
+  let from,to;
+  if(lb){
+    const ctl=$("lbCtl");
+    from=R($("lbName")).right+12;
+    to=(ctl.children.length?R(ctl).left:R($("lbClose")).left)-12;
+  }else{
+    from=R($("docChip")).right+12;
+    to=R(document.querySelector("#titlebar .tb-actions")).left-12;
+  }
+  t.classList.remove("wrap");
+  t.style.maxWidth="none";
+  t.style.left="0px";
+  const room=to-from,w=t.offsetWidth;
+  if(room>=220&&w<=room){
     t.style.left=(from+(room-w)/2)+"px";
     t.style.top=(bar.top+(bar.height-t.offsetHeight)/2)+"px";
   }else{
-    const room2=window.innerWidth-24;
-    t.style.maxWidth=room2+"px";
-    t.style.left=((window.innerWidth-Math.min(t.offsetWidth,room2))/2)+"px";
-    t.style.top=(bar.bottom+6)+"px";
+    const tb=R($("toolbar"));
+    t.classList.add("wrap");
+    t.style.maxWidth=Math.min(560,window.innerWidth-24)+"px";
+    t.style.left=((window.innerWidth-t.offsetWidth)/2)+"px";
+    t.style.top=((!lb&&tb.height?tb.bottom:bar.bottom)+6)+"px";
   }
 }
-window.addEventListener("resize",()=>{if($("toast").classList.contains("show"))placeToast();});
+/* the free space changes under a showing notification: the VPP name and
+   stats fill in, the full view opens or closes, the window resizes */
+{
+  const again=()=>{if($("toast").classList.contains("show"))placeToast();};
+  window.addEventListener("resize",again);
+  if(typeof ResizeObserver==="function"){
+    const ro=new ResizeObserver(again);
+    for(const id of ["docChip","toolbar","lbBar","lbName","lbCtl"])ro.observe($(id));
+    ro.observe(document.querySelector("#titlebar .tb-actions"));
+  }
+}
 function toast(msg,err){
   const t=$("toast");
   $("toastMsg").textContent=msg;
-  t.title=msg;
   t.classList.toggle("e",!!err);
   placeToast();
   t.classList.add("show");
   clearTimeout(toast._t);
-  toast._t=setTimeout(()=>t.classList.remove("show"),err?4200:2400);
+  /* long enough to read a long one */
+  toast._t=setTimeout(()=>t.classList.remove("show"),Math.max(err?4200:2400,msg.length*45));
 }
 /* ---- info probes (feed the Info column, like classic VPVIEW32) ---- */
 /* walk the JPEG marker segments to the frame header, the one place the size
@@ -2800,9 +2838,9 @@ function loadArchive(name,buf){
   $("search").value="";
   for(const e of state.entries)probeInfo(e);
   if(state.entries.length){state.sel.add(state.entries[0].id);state.anchor=state.entries[0].id;}
+  refreshAll();
   if(parsed.truncated)toast("This VPP appears truncated. Some file data may be missing.",true);
   else toast("Opened "+name+" · "+plural(state.entries.length,"file"));
-  refreshAll();
   return true;
 }
 function newArchive(){
@@ -5017,7 +5055,7 @@ function renderTree(){
   }
   const all=document.createElement("div");
   all.className="tnode all"+(state.typeFilter||viewingRef()?"":" on");
-  all.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">'
+  all.innerHTML='<span class="ficon mute"><svg viewBox="0 0 24 24"><path d="M4 7.5h6l2 2h8v9H4v-11z"/></svg></span><span class="lbl">'
     +(viewingRef()?esc(state.refs[state.viewRef].name):"All Files")
     +'</span><button class="tact tsel" title="Select all files">'+IC_SEL+'</button><span class="cnt">'+activeEntries().length+'</span>';
   all.addEventListener("click",()=>{state.viewRef=null;state.typeFilter=null;state.sel.clear();refreshList();renderPreview();});
@@ -5049,8 +5087,8 @@ function renderTree(){
     state.refs.forEach((r,i)=>{
       const d=document.createElement("div");
       d.className="tnode"+(state.viewRef===i?" on":"");
-      d.innerHTML='<span class="ficon" style="color:var(--text-3)"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1"/></svg></span>'
-        +'<span class="lbl" style="color:var(--text-2)">'+esc(r.name)+'</span>'
+      d.innerHTML='<span class="ficon mute"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1"/></svg></span>'
+        +'<span class="lbl mute">'+esc(r.name)+'</span>'
         +'<button class="tact" title="Stop using this VPP for previews"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
         +'<span class="cnt">'+r.entries.length+'</span>';
       d.addEventListener("click",()=>{

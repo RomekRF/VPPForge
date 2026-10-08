@@ -1163,10 +1163,10 @@ static void window_args(wchar_t *out, size_t cap) {
             wh = MulDiv(wa.bottom - wa.top, 100, (int)text) - 20;
             if (w > ww) w = ww;
             if (h > wh) h = wh;
-            if (w < 400) w = 400;
-            if (h < 300) h = 300;
         }
-        _snwprintf(out, cap - 1, L"--window-size=%d,%d", w, h);
+        /* a screen too small to fit anything: leave it to the browser */
+        if (w > 0 && h > 0) _snwprintf(out, cap - 1, L"--window-size=%d,%d", w, h);
+        else out[0] = 0;
     }
     out[cap - 1] = 0;
 }
