@@ -2711,15 +2711,19 @@ function placeToast(){
     t.classList.add("wrap");
     t.style.maxWidth=Math.min(560,window.innerWidth-24)+"px";
     const x=(window.innerWidth-t.offsetWidth)/2,h=t.offsetHeight;
-    let y=(!lb&&tb.height?tb.bottom:bar.bottom)+6;
+    const y0=(!lb&&tb.height?tb.bottom:bar.bottom)+6,maxY=window.innerHeight-h-8;
+    let y=y0;
     if(!lb)for(const id of ["menu","pop","menu"]){   /* menu twice: the popover may push it into one */
       const el=$(id);
       if(el.style.display==="none"||!el.offsetHeight)continue;
       const r=R(el);
       if(r.left<x+t.offsetWidth&&r.right>x&&r.top<y+h&&r.bottom>y)y=r.bottom+6;
     }
+    /* no room below it in a short window: stay up top, over the menu
+       (still under dialogs and the full view) */
+    if(y>maxY&&y!==y0){y=y0;t.style.zIndex="95";}
     t.style.left=x+"px";
-    t.style.top=Math.min(y,window.innerHeight-h-8)+"px";
+    t.style.top=Math.max(8,Math.min(y,maxY))+"px";
   }
 }
 /* the free space changes under a showing notification: the VPP name and
