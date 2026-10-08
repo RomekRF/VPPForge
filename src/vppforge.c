@@ -1138,45 +1138,11 @@ static void remove_tree(const wchar_t *dir) {
     RemoveDirectoryW(dir);
 }
 
-/* The window's size: the old fixed 1360x900 ran under the taskbar once
-   Windows scaling, or "Make text bigger" (Chrome and Edge scale their whole
-   window by it), left less room than that. They open a new window 10 of
-   their units in from the corner of the main screen's work area (the
-   screen minus the taskbar), and a unit is a scaled pixel, which this exe
-   gets as it is not DPI aware, times the text size. So fit it there.
-   Started with a file to show, it opens maximized instead: Chrome drops
-   --start-maximized when a size is given. No --window-position: with
-   screens at different scaling its units are not ours, and the window
-   could land off every screen. */
-static void window_args(wchar_t *out, size_t cap) {
-    RECT wa;
-    DWORD text = 100, len = sizeof text;
-    int w = 1360, h = 900, ww, wh;
-    if (g_startup_path >= 0) {
-        _snwprintf(out, cap - 1, L"--start-maximized");
-    } else {
-        if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Accessibility", L"TextScaleFactor",
-                         RRF_RT_REG_DWORD, NULL, &text, &len) != ERROR_SUCCESS || text < 100 || text > 225)
-            text = 100;
-        if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0)) {
-            ww = MulDiv(wa.right - wa.left, 100, (int)text) - 20;
-            wh = MulDiv(wa.bottom - wa.top, 100, (int)text) - 20;
-            if (w > ww) w = ww;
-            if (h > wh) h = wh;
-        }
-        /* a screen too small to fit anything: leave it to the browser */
-        if (w > 0 && h > 0) _snwprintf(out, cap - 1, L"--window-size=%d,%d", w, h);
-        else out[0] = 0;
-    }
-    out[cap - 1] = 0;
-}
-
 static void plat_launch_and_wait(const char *url_utf8) {
     wchar_t browser[MAX_PATH * 2];
     wchar_t profile[MAX_PATH * 2];
     wchar_t tmp[MAX_PATH];
     wchar_t cmd[MAX_PATH * 5];
-    wchar_t win[160];
     wchar_t *wurl = utf8_to_wide(url_utf8);
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
@@ -1191,11 +1157,15 @@ static void plat_launch_and_wait(const char *url_utf8) {
     _snwprintf(profile, MAX_PATH * 2 - 1, L"%sVPPForge-Profile-%lu", tmp,
                (unsigned long)GetCurrentProcessId());
     profile[MAX_PATH * 2 - 1] = 0;
-    window_args(win, sizeof win / sizeof *win);
+    /* Open maximized, on the main screen. The old fixed --window-size=1360,900
+       ran under the taskbar once Windows scaling or "Make text bigger" (which
+       Chrome and Edge scale their whole window by) left less room than that,
+       and any size given makes Chrome ignore --start-maximized. Restored,
+       the window takes Chrome's default size, which fits the screen. */
     _snwprintf(cmd, MAX_PATH * 5 - 1,
                L"\"%s\" --app=%s --user-data-dir=\"%s\" --no-first-run "
-               L"--no-default-browser-check --new-window %s",
-               browser, wurl, profile, win);
+               L"--no-default-browser-check --new-window --start-maximized",
+               browser, wurl, profile);
     cmd[MAX_PATH * 5 - 1] = 0;
     memset(&si, 0, sizeof si);
     si.cb = sizeof si;
