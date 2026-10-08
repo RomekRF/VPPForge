@@ -169,6 +169,7 @@ body.flip #sidebar{border-right:none; border-left:1px solid var(--border)}
 }
 .tnode:hover{background:var(--surface-2); color:var(--text)}
 .tnode.on{background:var(--accent-soft); color:var(--text)}
+body.theme-dark .tnode.on{background:rgba(208,82,28,.30)}
 .tnode .lbl{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .tnode .cnt{font:400 11px var(--mono); color:var(--text-3)}
 .tnode .tact{
@@ -322,8 +323,14 @@ canvas.px{image-rendering:pixelated}
   border-left:2px solid transparent; cursor:default; user-select:none;
   font:400 12px var(--sans); color:var(--text);
 }
-.row:hover{background:var(--surface)}
+.row:hover{background:var(--surface-2)}
 .row.sel{background:var(--accent-soft); border-left-color:var(--accent); color:var(--text)}
+/* dark: the faint accent wash was all but invisible, so selection gets a
+   proper fill and a full-height bar, and hover a clear lift */
+body.theme-dark .row:hover{background:rgba(255,255,255,.06)}
+body.theme-dark .row.sel{background:rgba(208,82,28,.30); border-left-color:var(--accent-hover)}
+body.theme-dark .row.sel:hover{background:rgba(208,82,28,.38)}
+body.theme-dark .row.sel .tp,body.theme-dark .row.sel .info,body.theme-dark .row.sel .sz{color:var(--text)}
 .row .nm{display:flex; align-items:center; gap:6px; min-width:0}
 .ficon{width:14px;height:14px;flex:none;display:inline-flex}
 .ficon svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
@@ -422,14 +429,18 @@ body.dragging #dropCard{border-color:var(--accent); background:var(--accent-soft
 #pop td{padding:7px 14px; border-bottom:1px solid var(--border-2); font:400 12px var(--sans); color:var(--text-2)}
 #pop td:last-child{text-align:right; font-family:var(--mono); color:var(--text); white-space:nowrap}
 #pop tr:last-child td{border-bottom:none}
+/* notifications sit in the top bar's free space (placeToast); fixed and
+   above the lightbox, which covers the bar */
 #toast{
-  position:fixed; z-index:120; bottom:22px; left:50%; transform:translateX(-50%) translateY(6px);
-  display:flex; align-items:center; gap:9px; padding:9px 16px; border-radius:var(--r);
+  position:fixed; z-index:120; top:4px; left:50%; height:25px; box-sizing:border-box;
+  display:flex; align-items:center; gap:7px; padding:0 12px; border-radius:var(--r);
   background:var(--raised); border:1px solid var(--border-3); box-shadow:var(--shadow);
-  font:500 12.5px var(--sans); color:var(--text); opacity:0; pointer-events:none;
-  transition:opacity .14s, transform .14s;
+  font:500 12px var(--sans); color:var(--text); opacity:0; pointer-events:none;
+  white-space:nowrap; transition:opacity .14s;
 }
-#toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+#toast.show{opacity:1; pointer-events:auto}
+#toastMsg{min-width:0; overflow:hidden; text-overflow:ellipsis}
+#toast svg.i{flex:none}
 #toast svg.i{color:var(--ok)} #toast.e svg.i{color:var(--err)}
 #dropVeil{
   position:fixed; inset:0; z-index:70; display:none; place-items:center;
@@ -2640,10 +2651,35 @@ const sect=s=>s===0?0:Math.ceil(s/SECTOR);
 const esc=s=>s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const plural=(n,w)=>n+" "+w+(n===1?"":"s");
 const baseName=n=>{const i=n.lastIndexOf(".");return i>0?n.slice(0,i):n;};
+/* Centre the notification in the top bar's free space, between the VPP
+   name and the buttons on the right. Too little room there, and it sits
+   just under the bar instead. A long message is cut short with its full
+   text on hover. */
+function placeToast(){
+  const t=$("toast"),bar=$("titlebar").getBoundingClientRect();
+  const from=$("docChip").getBoundingClientRect().right+12;
+  const to=document.querySelector("#titlebar .tb-actions").getBoundingClientRect().left-12;
+  t.style.maxWidth="";
+  const room=to-from;
+  if(room>=220){
+    t.style.maxWidth=room+"px";
+    const w=Math.min(t.offsetWidth,room);
+    t.style.left=(from+(room-w)/2)+"px";
+    t.style.top=(bar.top+(bar.height-t.offsetHeight)/2)+"px";
+  }else{
+    const room2=window.innerWidth-24;
+    t.style.maxWidth=room2+"px";
+    t.style.left=((window.innerWidth-Math.min(t.offsetWidth,room2))/2)+"px";
+    t.style.top=(bar.bottom+6)+"px";
+  }
+}
+window.addEventListener("resize",()=>{if($("toast").classList.contains("show"))placeToast();});
 function toast(msg,err){
   const t=$("toast");
   $("toastMsg").textContent=msg;
+  t.title=msg;
   t.classList.toggle("e",!!err);
+  placeToast();
   t.classList.add("show");
   clearTimeout(toast._t);
   toast._t=setTimeout(()=>t.classList.remove("show"),err?4200:2400);

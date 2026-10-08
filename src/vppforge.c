@@ -1138,11 +1138,39 @@ static void remove_tree(const wchar_t *dir) {
     RemoveDirectoryW(dir);
 }
 
+/* The window's size and place: the old fixed 1360x900 ran under the taskbar
+   on a 1080p screen at 125% scaling or more. Fit it to the work area (the
+   screen minus the taskbar) of the monitor under the mouse, centred, and
+   open maximized when started with a file to show. This exe is not DPI
+   aware, so Windows hands it the same scaled coordinates Chrome and Edge
+   take these flags in. */
+static void window_args(wchar_t *out, size_t cap) {
+    RECT wa;
+    POINT pt;
+    MONITORINFO mi;
+    int w = 1360, h = 900, ww, wh;
+    mi.cbSize = sizeof mi;
+    if (GetCursorPos(&pt) && GetMonitorInfoW(MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY), &mi))
+        wa = mi.rcWork;
+    else if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0)) {
+        wa.left = 0; wa.top = 0; wa.right = w; wa.bottom = h;
+    }
+    ww = wa.right - wa.left;
+    wh = wa.bottom - wa.top;
+    if (w > ww) w = ww;
+    if (h > wh) h = wh;
+    _snwprintf(out, cap - 1, L"--window-size=%d,%d --window-position=%d,%d%s",
+               w, h, wa.left + (ww - w) / 2, wa.top + (wh - h) / 2,
+               g_startup_path >= 0 ? L" --start-maximized" : L"");
+    out[cap - 1] = 0;
+}
+
 static void plat_launch_and_wait(const char *url_utf8) {
     wchar_t browser[MAX_PATH * 2];
     wchar_t profile[MAX_PATH * 2];
     wchar_t tmp[MAX_PATH];
     wchar_t cmd[MAX_PATH * 5];
+    wchar_t win[160];
     wchar_t *wurl = utf8_to_wide(url_utf8);
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
@@ -1157,10 +1185,11 @@ static void plat_launch_and_wait(const char *url_utf8) {
     _snwprintf(profile, MAX_PATH * 2 - 1, L"%sVPPForge-Profile-%lu", tmp,
                (unsigned long)GetCurrentProcessId());
     profile[MAX_PATH * 2 - 1] = 0;
+    window_args(win, sizeof win / sizeof *win);
     _snwprintf(cmd, MAX_PATH * 5 - 1,
                L"\"%s\" --app=%s --user-data-dir=\"%s\" --no-first-run "
-               L"--no-default-browser-check --new-window --window-size=1360,900",
-               browser, wurl, profile);
+               L"--no-default-browser-check --new-window %s",
+               browser, wurl, profile, win);
     cmd[MAX_PATH * 5 - 1] = 0;
     memset(&si, 0, sizeof si);
     si.cb = sizeof si;
