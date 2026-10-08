@@ -30,8 +30,10 @@ SETUP
 USING IT
   - Open a .vpp by double-click, drag and drop, the Open button, or
     the Recent list on the start screen.
-  - Toolbar: New, Open, Save VPP, Add, Remove, Extract. Extract asks
-    for a destination folder and unpacks the selected files there.
+  - Toolbar: New, Open, Save VPP, Add, Remove, Extract, Extract To.
+    Extract sends each file to the export folder set for its type and
+    asks for a folder for the rest; Extract To asks for one folder for
+    everything.
   - Select a file to preview it: textures, meshes, animations,
     levels, fonts, tables and audio. Alongside the stock formats it
     reads the PNG and JPEG textures Alpine Faction 1.4 introduces.
@@ -49,7 +51,8 @@ USING IT
     renaming or resizing a texture takes its mip files along.
   - Arrow keys move through the list, Space plays and pauses an
     animation or a sound, F2 renames, Del removes, Alt Up/Down
-    reorders, Ctrl S saves, Ctrl E extracts, Ctrl F filters.
+    reorders, Ctrl S saves, Ctrl E extracts, Ctrl Shift E extracts to
+    a folder you pick, Ctrl F filters.
     The full list is under Help > Keyboard shortcuts.
   - New versions install themselves: Help > Check for updates.
   - Light/dark theme and the panel-swap button sit at the top right;
@@ -63,8 +66,9 @@ BROWSER VERSION
       double-clicking a .vpp in Explorer won't route here.
     - Saving downloads a new .vpp through the browser instead of
       writing back over the original file.
-    - Extract saves a single file or a ZIP to your Downloads folder
-      instead of asking for a destination folder.
+    - Extract saves a single file or a ZIP to your Downloads folder.
+      Extract To asks for a folder where the browser offers a folder
+      picker (Chrome and Edge do).
 
 REMOVE
   Windows Settings > Apps > Installed apps > VPP Forge > Uninstall,

@@ -80,7 +80,9 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   of 16 (fatal in Alpine at Medium or Low detail). Build mipmaps fixes the
   first three, trimming an over-long chain byte for byte.
 - Extract opens the native Windows folder picker and unpacks straight
-  into the folder you choose.
+  into the folder you choose, or into the export folder set for each file
+  type. Extract To (Ctrl Shift E) always asks for one folder, whatever the
+  export folders say. Browsing a linked VPP, both extract its files.
 
 **Saving**
 

@@ -512,9 +512,13 @@ body.dragging.no-doc #dropVeil{display:none}
     <svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 13h8l1-13"/></svg>
     Remove
   </button>
-  <button class="btn tool" id="btnExtract" title="Extract selected to a folder" disabled>
+  <button class="btn tool" id="btnExtract" title="Extract selected (Ctrl E) · each type to its export folder when one is set" disabled>
     <svg class="i" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>
     Extract
+  </button>
+  <button class="btn tool" id="btnExtractTo" title="Extract selected to a folder you pick (Ctrl Shift E)" disabled>
+    <svg class="i" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 014.5 6H9l2 2h8.5A1.5 1.5 0 0121 9.5v8a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z"/><path d="M12 10.5v5.5m0 0l-2.5-2.5M12 16l2.5-2.5"/></svg>
+    Extract To
   </button>
   <span class="grow"></span>
   <label class="search">
@@ -3323,10 +3327,15 @@ function openArchiveDialog(){
     if(!j.cancel)bridgeLoad(j.id,j.name);
   }).catch(()=>toast("Open dialog failed",true));
 }
-function extractIds(ids){
-  const list=state.entries.filter(e=>ids.has(e.id));
+/* opts.pick: one folder picked now for everything, past any export folders.
+   The files come from the list on screen, so a linked VPP being browsed
+   extracts its own files. */
+function extractIds(ids,opts){
+  const list=activeEntries().filter(e=>ids.has(e.id));
   if(!list.length)return;
-  if(BRIDGE){extractToFolder(list);return;}
+  const pick=!!(opts&&opts.pick);
+  if(BRIDGE){extractToFolder(list,{pick});return;}
+  if(pick){extractToPickedFolder(list);return;}
   if(list.length===1){
     download(entryData(list[0]),list[0].name,"application/octet-stream");
     toast("Extracted "+list[0].name);
@@ -3412,10 +3421,32 @@ function meshWithTextures(e){
   }catch(_){}
   return out;
 }
-async function extractToFolder(list){
+/* the browser build can pick a folder too where the browser offers one */
+const canPickFolder=()=>!!BRIDGE||typeof window.showDirectoryPicker==="function";
+async function extractToPickedFolder(list){
+  let dir;
+  try{dir=await window.showDirectoryPicker({mode:"readwrite",id:"vppforge-extract"});}
+  catch(err){if(!err||err.name!=="AbortError")toast("Could not open the folder picker",true);return;}
+  let n=0;
+  for(const e of list){
+    try{
+      const fh=await dir.getFileHandle(e.name,{create:true});
+      const w=await fh.createWritable();
+      await w.write(entryData(e));
+      await w.close();
+      n++;
+    }catch(_){
+      toast("Failed at "+e.name+" ("+n+" of "+list.length+" extracted)",true);
+      return;
+    }
+  }
+  toast("Extracted "+plural(n,"file")+" to "+dir.name);
+}
+async function extractToFolder(list,opts){
   if(!list.length)return;
-  /* send each file to the folder set for its type; ask once for the rest */
-  const dirs=exportDirs();
+  /* send each file to the folder set for its type; ask once for the rest.
+     Extract To (opts.pick) asks once for everything. */
+  const dirs=opts&&opts.pick?{}:exportDirs();
   const byDir=new Map();
   const ask=[];
   for(const e of list){
@@ -5039,6 +5070,7 @@ function renderChrome(){
   document.body.classList.toggle("browsing-ref",viewingRef());
   document.body.classList.toggle("loose-file",!!state.loose);
   $("btnExtract").disabled=!state.sel.size;
+  $("btnExtractTo").disabled=!state.sel.size;
   $("btnRemove").disabled=!state.sel.size||ro;
   let payload=0;for(const e of state.entries)payload+=e.size;
   const vis=visible().length;
@@ -6276,6 +6308,7 @@ function contextItems(){
     return [
       {label:n===1?"Copy into this VPP":"Copy "+n+" files into this VPP",fn:()=>copyRefEntries(picked)},
       {label:n===1?"Extract file…":"Extract "+n+" files…",icon:IC.extract,fn:()=>extractIds(state.sel)},
+      ...(canPickFolder()?[{label:n===1?"Extract file to…":"Extract "+n+" files to…",icon:IC.extract,k:"Ctrl Shift E",fn:()=>extractIds(state.sel,{pick:true})}]:[]),
       ...texActions,
       {label:n===1?"Copy name":"Copy "+n+" names",fn:copySelectedNames},
     ];
@@ -6287,6 +6320,7 @@ function contextItems(){
   return [
     ...(one&&canBig?[{label:"Open full size",icon:IC.expand,k:"Enter",fn:()=>openLightbox(e)}]:[]),
     {label:one?"Extract file…":"Extract "+n+" files…",icon:IC.extract,k:"Ctrl E",fn:()=>extractIds(state.sel)},
+    ...(canPickFolder()?[{label:one?"Extract file to…":"Extract "+n+" files to…",icon:IC.extract,k:"Ctrl Shift E",fn:()=>extractIds(state.sel,{pick:true})}]:[]),
     ...texActions,
     ...((()=>{const t=[...state.sel].map(byId).filter(toDdsOk);
       return t.length?[{label:t.length===1?"Replace with DDS…":"Replace "+t.length+" "+kindsOf(t)+" with DDS…",fn:()=>showMipDialog(t,"convert")}]:[];})()),
@@ -6340,7 +6374,7 @@ function showShortcuts(){
      ["Undo","Ctrl Z"],["Redo","Ctrl Y"],
      ["Move through list","↑ / ↓"],["Extend selection","Shift ↑ / ↓"],
      ["First / last file","Home / End"],["Select all","Ctrl A"],["Filter files","Ctrl F"],
-     ["Extract selected","Ctrl E"],["Duplicate","Ctrl D"],["Rename","F2"],
+     ["Extract selected","Ctrl E"],["Extract selected to a folder…","Ctrl Shift E"],["Duplicate","Ctrl D"],["Rename","F2"],
      ["Remove selected","Del"],["Reorder file","Alt ↑ / ↓"],
      ["Play / pause animation or audio","Space"],["Full size preview","Enter"],
      ["Close / clear","Esc"],["This panel","?"]]
@@ -6553,7 +6587,9 @@ function menuItems(which){
       "-",
       {label:"Add files…",fn:()=>$("fileAdd").click()},
       {label:state.sel.size>1?"Extract "+state.sel.size+" files…":"Extract selected…",icon:IC.extract,k:"Ctrl E",off:!state.sel.size,fn:()=>extractIds(state.sel)},
-      {label:BRIDGE?"Extract all…":"Extract all as ZIP",icon:IC.zip,off:!has,fn:()=>extractIds(new Set(state.entries.map(x=>x.id)))},
+      ...(canPickFolder()?[{label:state.sel.size>1?"Extract "+state.sel.size+" files to…":"Extract selected to…",icon:IC.extract,k:"Ctrl Shift E",off:!state.sel.size,fn:()=>extractIds(state.sel,{pick:true})}]:[]),
+      {label:BRIDGE?"Extract all…":"Extract all as ZIP",icon:IC.zip,off:!activeEntries().length,fn:()=>extractIds(new Set(activeEntries().map(x=>x.id)))},
+      ...(canPickFolder()?[{label:"Extract all to…",icon:IC.zip,off:!activeEntries().length,fn:()=>extractIds(new Set(activeEntries().map(x=>x.id)),{pick:true})}]:[]),
       "-",
       {label:"Rename",icon:IC.rename,k:"F2",off:!one,fn:()=>beginRename([...state.sel][0])},
       {label:"Move up",icon:IC.up,k:"Alt ↑",off:!one||sorted,fn:()=>moveSelected(-1)},
@@ -6903,6 +6939,8 @@ $("btnSave").addEventListener("click",()=>saveArchive());
 $("btnSaveAs").addEventListener("click",()=>saveArchive(true));
 $("btnAdd").addEventListener("click",()=>$("fileAdd").click());
 $("btnExtract").addEventListener("click",()=>extractIds(state.sel));
+$("btnExtractTo").addEventListener("click",()=>extractIds(state.sel,{pick:true}));
+if(!canPickFolder())$("btnExtractTo").style.display="none";   /* a browser with no folder picker */
 $("btnRemove").addEventListener("click",removeSelected);
 $("fileOpen").addEventListener("change",ev=>{
   const f=ev.target.files[0];
@@ -6931,6 +6969,7 @@ document.addEventListener("keydown",ev=>{
   if(mod&&k==="o"){ev.preventDefault();openArchiveDialog();}
   else if(mod&&k==="s"&&ev.shiftKey){ev.preventDefault();if(!$("btnSaveAs").disabled)saveArchive(true);}
   else if(mod&&k==="s"){ev.preventDefault();if(!$("btnSave").disabled)saveArchive();}
+  else if(mod&&k==="e"&&ev.shiftKey){ev.preventDefault();if(state.sel.size&&canPickFolder())extractIds(state.sel,{pick:true});}
   else if(mod&&k==="e"){ev.preventDefault();if(state.sel.size)extractIds(state.sel);}
   else if(mod&&k==="f"){ev.preventDefault();$("search").focus();$("search").select();}
   else if(mod&&k==="a"){ev.preventDefault();selectAll();}
