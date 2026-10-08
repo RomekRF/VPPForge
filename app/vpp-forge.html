@@ -3330,10 +3330,11 @@ function openArchiveDialog(){
   }).catch(()=>toast("Open dialog failed",true));
 }
 /* opts.pick: one folder picked now for everything, past any export folders.
-   The files come from the list on screen, so a linked VPP being browsed
-   extracts its own files. */
+   A file is found wherever its id lives, the open VPP or a linked one: a
+   linked VPP being browsed, a texture opened from a mesh, and a mesh with
+   its textures all mix the two. Ids are unique across them. */
 function extractIds(ids,opts){
-  const list=activeEntries().filter(e=>ids.has(e.id));
+  const list=[state.entries,...state.refs.map(r=>r.entries)].flat().filter(e=>ids.has(e.id));
   if(!list.length)return;
   const pick=!!(opts&&opts.pick);
   if(BRIDGE){extractToFolder(list,{pick});return;}
@@ -3426,19 +3427,23 @@ function meshWithTextures(e){
 /* the browser build can pick a folder too where the browser offers one */
 const canPickFolder=()=>!!BRIDGE||typeof window.showDirectoryPicker==="function";
 async function extractToPickedFolder(list){
+  /* the bytes now: opening another VPP while this writes must not change them */
+  let items;
+  try{items=list.map(e=>({name:e.name,data:entryData(e)}));}
+  catch(_){toast("Could not read the files to extract",true);return;}
   let dir;
   try{dir=await window.showDirectoryPicker({mode:"readwrite",id:"vppforge-extract"});}
   catch(err){if(!err||err.name!=="AbortError")toast("Could not open the folder picker",true);return;}
   let n=0;
-  for(const e of list){
+  for(const it of items){
     try{
-      const fh=await dir.getFileHandle(e.name,{create:true});
+      const fh=await dir.getFileHandle(it.name,{create:true});
       const w=await fh.createWritable();
-      await w.write(entryData(e));
+      await w.write(it.data);
       await w.close();
       n++;
     }catch(_){
-      toast("Failed at "+e.name+" ("+n+" of "+list.length+" extracted)",true);
+      toast("Failed at "+it.name+" ("+n+" of "+items.length+" extracted)",true);
       return;
     }
   }
@@ -3449,6 +3454,12 @@ async function extractToFolder(list,opts){
   /* send each file to the folder set for its type; ask once for the rest.
      Extract To (opts.pick) asks once for everything. */
   const dirs=opts&&opts.pick?{}:exportDirs();
+  /* the open VPP's bytes now: opening another VPP while this writes would
+     otherwise hand later files the new one's bytes. Linked files keep
+     theirs on the entry once fetched. */
+  const own=new Map();
+  try{for(const e of list)if(e.refId==null)own.set(e,entryData(e));}
+  catch(_){toast("Could not read the files to extract",true);return;}
   const byDir=new Map();
   const ask=[];
   for(const e of list){
@@ -3470,9 +3481,10 @@ async function extractToFolder(list,opts){
   for(const [dir,items] of byDir){
     for(const e of items){
       try{
-        await ensureData(e); /* linked files may not be fetched yet */
+        let body=own.get(e);
+        if(!body){await ensureData(e);body=entryData(e);}  /* linked files may not be fetched yet */
         const r=await fetch(bridgeUrl("/extractfile?dir="+encodeURIComponent(dir)+"&name="+encodeURIComponent(e.name)),
-          {method:"POST",body:entryData(e)});
+          {method:"POST",body});
         if(!r.ok)throw 0;
         n++;
       }catch(_){
