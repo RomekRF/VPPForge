@@ -353,6 +353,11 @@ body:not(.theme-dark) .tnode.on .cnt{color:rgba(255,255,255,.8)}
 .tnode .ficon.mute{color:var(--text-3)}
 .tnode .lbl.mute{color:var(--text-2)}
 .tnode.on .ficon.mute,.tnode.on .lbl.mute{color:inherit}
+/* the type icons' own colours all but vanish on the blue; white, as Explorer
+   does (they are set inline, hence the !important) */
+@media (forced-colors:none){
+  body:not(.theme-dark) .row.sel .ficon,body:not(.theme-dark) .tnode.on .ficon{color:#fff !important}
+}
 /* Windows contrast themes drop the fills and draw every row's bar, so
    selection gets the system highlight there */
 @media (forced-colors:active){
@@ -360,6 +365,11 @@ body:not(.theme-dark) .tnode.on .cnt{color:rgba(255,255,255,.8)}
   body .row.sel,body .tnode.on{forced-color-adjust:none; background:Highlight !important; color:HighlightText !important; border-left-color:Highlight !important}
   .row.sel *,.tnode.on *{color:HighlightText !important}
   .row:hover,.tnode:hover{outline:1px solid CanvasText; outline-offset:-1px}
+  /* what sits on the highlight keeps system colours of its own */
+  .row.sel input{forced-color-adjust:auto; background:Field !important; color:FieldText !important; border-color:FieldText !important}
+  .tnode.on .tact:hover{background:HighlightText !important; color:Highlight !important; opacity:1}
+  .tnode.on .tact:hover *{color:Highlight !important}
+  .row.sel :focus-visible,.tnode.on :focus-visible{outline-color:HighlightText !important}
 }
 @media (max-width:1150px){
   #colHead,#rows .row{grid-template-columns:minmax(0,1.4fr) 88px 70px}
@@ -2672,11 +2682,14 @@ const baseName=n=>{const i=n.lastIndexOf(".");return i>0?n.slice(0,i):n;};
    bar between the VPP name and the buttons on the right, or the full
    view's bar while that is open. A message too long for that space goes
    just under the toolbar (or the full view's bar) instead, wrapping onto
-   more lines rather than being cut short. */
+   more lines rather than being cut short, and below an open menu or
+   popover it would cover. Over the main window it stays under those
+   layers; over the full view, which covers them, it goes on top. */
 function placeToast(){
   const t=$("toast"),R=el=>el.getBoundingClientRect();
   const lb=$("lightbox").classList.contains("open");
   const bar=R(lb?$("lbBar"):$("titlebar"));
+  t.style.zIndex=lb?"120":"84";
   let from,to;
   if(lb){
     const ctl=$("lbCtl");
@@ -2697,8 +2710,16 @@ function placeToast(){
     const tb=R($("toolbar"));
     t.classList.add("wrap");
     t.style.maxWidth=Math.min(560,window.innerWidth-24)+"px";
-    t.style.left=((window.innerWidth-t.offsetWidth)/2)+"px";
-    t.style.top=((!lb&&tb.height?tb.bottom:bar.bottom)+6)+"px";
+    const x=(window.innerWidth-t.offsetWidth)/2,h=t.offsetHeight;
+    let y=(!lb&&tb.height?tb.bottom:bar.bottom)+6;
+    if(!lb)for(const id of ["menu","pop","menu"]){   /* menu twice: the popover may push it into one */
+      const el=$(id);
+      if(el.style.display==="none"||!el.offsetHeight)continue;
+      const r=R(el);
+      if(r.left<x+t.offsetWidth&&r.right>x&&r.top<y+h&&r.bottom>y)y=r.bottom+6;
+    }
+    t.style.left=x+"px";
+    t.style.top=Math.min(y,window.innerHeight-h-8)+"px";
   }
 }
 /* the free space changes under a showing notification: the VPP name and
@@ -2708,7 +2729,7 @@ function placeToast(){
   window.addEventListener("resize",again);
   if(typeof ResizeObserver==="function"){
     const ro=new ResizeObserver(again);
-    for(const id of ["docChip","toolbar","lbBar","lbName","lbCtl"])ro.observe($(id));
+    for(const id of ["docChip","toolbar","lbBar","lbName","lbCtl","menu","pop"])ro.observe($(id));
     ro.observe(document.querySelector("#titlebar .tb-actions"));
   }
 }
