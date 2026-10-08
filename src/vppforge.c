@@ -1138,30 +1138,36 @@ static void remove_tree(const wchar_t *dir) {
     RemoveDirectoryW(dir);
 }
 
-/* The window's size and place: the old fixed 1360x900 ran under the taskbar
-   on a 1080p screen at 125% scaling or more. Fit it to the work area (the
-   screen minus the taskbar) of the monitor under the mouse, centred, and
-   open maximized when started with a file to show. This exe is not DPI
-   aware, so Windows hands it the same scaled coordinates Chrome and Edge
-   take these flags in. */
+/* The window's size: the old fixed 1360x900 ran under the taskbar once
+   Windows scaling, or "Make text bigger" (Chrome and Edge scale their whole
+   window by it), left less room than that. They open a new window 10 of
+   their units in from the corner of the main screen's work area (the
+   screen minus the taskbar), and a unit is a scaled pixel, which this exe
+   gets as it is not DPI aware, times the text size. So fit it there.
+   Started with a file to show, it opens maximized instead: Chrome drops
+   --start-maximized when a size is given. No --window-position: with
+   screens at different scaling its units are not ours, and the window
+   could land off every screen. */
 static void window_args(wchar_t *out, size_t cap) {
     RECT wa;
-    POINT pt;
-    MONITORINFO mi;
+    DWORD text = 100, len = sizeof text;
     int w = 1360, h = 900, ww, wh;
-    mi.cbSize = sizeof mi;
-    if (GetCursorPos(&pt) && GetMonitorInfoW(MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY), &mi))
-        wa = mi.rcWork;
-    else if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0)) {
-        wa.left = 0; wa.top = 0; wa.right = w; wa.bottom = h;
+    if (g_startup_path >= 0) {
+        _snwprintf(out, cap - 1, L"--start-maximized");
+    } else {
+        if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Accessibility", L"TextScaleFactor",
+                         RRF_RT_REG_DWORD, NULL, &text, &len) != ERROR_SUCCESS || text < 100 || text > 225)
+            text = 100;
+        if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0)) {
+            ww = MulDiv(wa.right - wa.left, 100, (int)text) - 20;
+            wh = MulDiv(wa.bottom - wa.top, 100, (int)text) - 20;
+            if (w > ww) w = ww;
+            if (h > wh) h = wh;
+            if (w < 400) w = 400;
+            if (h < 300) h = 300;
+        }
+        _snwprintf(out, cap - 1, L"--window-size=%d,%d", w, h);
     }
-    ww = wa.right - wa.left;
-    wh = wa.bottom - wa.top;
-    if (w > ww) w = ww;
-    if (h > wh) h = wh;
-    _snwprintf(out, cap - 1, L"--window-size=%d,%d --window-position=%d,%d%s",
-               w, h, wa.left + (ww - w) / 2, wa.top + (wh - h) / 2,
-               g_startup_path >= 0 ? L" --start-maximized" : L"");
     out[cap - 1] = 0;
 }
 
