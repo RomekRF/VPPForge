@@ -2684,12 +2684,13 @@ const baseName=n=>{const i=n.lastIndexOf(".");return i>0?n.slice(0,i):n;};
    just under the toolbar (or the full view's bar) instead, wrapping onto
    more lines rather than being cut short, and below an open menu or
    popover it would cover. Over the main window it stays under those
-   layers; over the full view, which covers them, it goes on top. */
+   layers; over the full view, which covers them, it goes on top, and over
+   a dialog too (saving still works behind one). */
 function placeToast(){
   const t=$("toast"),R=el=>el.getBoundingClientRect();
   const lb=$("lightbox").classList.contains("open");
   const bar=R(lb?$("lbBar"):$("titlebar"));
-  t.style.zIndex=lb?"120":"84";
+  t.style.zIndex=modalOpen()?"410":lb?"120":"84";
   let from,to;
   if(lb){
     const ctl=$("lbCtl");
@@ -2721,7 +2722,7 @@ function placeToast(){
     }
     /* no room below it in a short window: stay up top, over the menu
        (still under dialogs and the full view) */
-    if(y>maxY&&y!==y0){y=y0;t.style.zIndex="95";}
+    if(y>maxY&&y!==y0){y=y0;t.style.zIndex=String(Math.max(95,+t.style.zIndex));}
     t.style.left=x+"px";
     t.style.top=Math.max(8,Math.min(y,maxY))+"px";
   }
@@ -2862,7 +2863,7 @@ function loadArchive(name,buf){
   undoStack.length=0; redoStack.length=0;
   $("search").value="";
   for(const e of state.entries)probeInfo(e);
-  if(state.entries.length){state.sel.add(state.entries[0].id);state.anchor=state.entries[0].id;}
+  if(state.entries.length){state.sel.add(state.entries[0].id);state.anchor=state.cursor=state.entries[0].id;}
   refreshAll();
   if(parsed.truncated)toast("This VPP appears truncated. Some file data may be missing.",true);
   else toast("Opened "+name+" · "+plural(state.entries.length,"file"));
@@ -2945,7 +2946,7 @@ function addFiles(fileList){
     if(added||replaced){
       pushUndoSnap(pre);
       state.dirty=true;
-      if(lastId!=null){state.sel.clear();state.sel.add(lastId);state.anchor=lastId;}
+      if(lastId!=null){state.sel.clear();state.sel.add(lastId);state.anchor=state.cursor=lastId;}
     }
     refreshAll();
     if(lastId!=null)scrollToRow(lastId);
@@ -3312,7 +3313,7 @@ function duplicateSelected(){
     newSel.add(ne.id);
   }
   if(newSel.size){
-    state.sel=newSel;state.anchor=[...newSel][0];state.dirty=true;
+    state.sel=newSel;state.anchor=state.cursor=[...newSel][0];state.dirty=true;
     refreshAll();
     toast(plural(newSel.size,"file")+" duplicated");
   }
@@ -3940,7 +3941,7 @@ async function imagesToDds(list,opt){
     pushUndoSnap(pre);
     state.dirty=true;
     state.sel=newSel;
-    state.anchor=newSel.size?[...newSel][0]:null;
+    state.anchor=state.cursor=newSel.size?[...newSel][0]:null;
     refreshAll();
     toast("Replaced "+ok+" "+kindsOf(done)+" with DDS · "+dxt1+" DXT1, "+dxt5+" DXT5"
       +(chained?" · mipmaps down to "+mipMinLabel(opt.minSize||1)+" inside":"")
@@ -4175,7 +4176,7 @@ async function applyResize(list,sizeFor,opt){
     pushUndoSnap(pre);
     state.dirty=true;
     state.sel=newSel;
-    state.anchor=newSel.size?[...newSel][0]:null;
+    state.anchor=state.cursor=newSel.size?[...newSel][0]:null;
     refreshAll();
     toast("Resized "+plural(ok,"image")+" · "+(ok===1?last:(saved>0?fmtBytes(saved)+" smaller":fmtBytes(-saved)+" larger"))
       +(same?" · "+same+" already that size":"")
@@ -5075,7 +5076,7 @@ function renderTree(){
   function selectType(k){
     state.typeFilter=k;
     state.sel=new Set(activeEntries().filter(e=>!k||e.tkey===k).map(e=>e.id));
-    state.anchor=state.sel.size?[...state.sel][0]:null;
+    state.anchor=state.cursor=state.sel.size?[...state.sel][0]:null;
     refreshList();renderPreview();
   }
   const all=document.createElement("div");
@@ -5251,7 +5252,7 @@ function jumpToTyped(ch){
   }
 }
 /* a dialog is up: keys are its, not the list's behind it */
-const modalOpen=()=>[...document.body.children].some(el=>el.style.zIndex==="400");
+function modalOpen(){return [...document.body.children].some(el=>el.style.zIndex==="400");}
 function refreshList(){renderTree();renderRows();renderChrome();}
 function refreshAll(){assetIdx=null;renderTree();renderRows();renderChrome();renderPreview();}
 
@@ -5997,7 +5998,7 @@ function render3d(body,e,big,r3opts){
       selAll.addEventListener("click",()=>{
         const s=new Set([e.id]);
         for(const tn of model.textureNames)for(const h of textureFamily(texEntryFor(tn)))s.add(h.id);
-        state.sel=s;state.anchor=e.id;
+        state.sel=s;state.anchor=state.cursor=e.id;
         state.typeFilter=null; /* back to All files so the whole selection is visible */
         refreshList();
         toast(plural(s.size,"file")+" selected · mesh and its textures");
@@ -6959,6 +6960,7 @@ $("checksChip").addEventListener("click",()=>{
       started=false;
       mq.style.display="none";
       if(state.sel.size&&(state.anchor==null||!state.sel.has(state.anchor)))state.anchor=[...state.sel][0];
+      if(state.sel.size&&!state.sel.has(state.cursor))state.cursor=state.anchor;
       renderPreview();
       const swallow=ev=>{ev.stopPropagation();};
       window.addEventListener("click",swallow,{capture:true,once:true});
@@ -6994,7 +6996,7 @@ $("rows").addEventListener("contextmenu",ev=>{
   if(!r)return;
   ev.preventDefault();
   const id=+r.dataset.id;
-  if(!state.sel.has(id)){state.sel.clear();state.sel.add(id);state.anchor=id;renderRows();renderChrome();renderPreview();}
+  if(!state.sel.has(id)){state.sel.clear();state.sel.add(id);state.anchor=state.cursor=id;renderRows();renderChrome();renderPreview();}
   openMenu(ev.clientX,ev.clientY,contextItems());
 });
 document.querySelector("#colHead").addEventListener("click",ev=>{
@@ -7112,7 +7114,17 @@ document.addEventListener("keydown",ev=>{
     if(state.sel.size){state.sel.clear();renderRows();renderChrome();renderPreview();}
     return;
   }
-  if(lbOpen||modalOpen())return;
+  if(lbOpen||modalOpen()){
+    /* behind the full view or a dialog only saving gets through (the
+       updater asks for it), never while an update installs; the browser's
+       own Save page, Open and the rest stay cancelled */
+    const up=$("updater");
+    if(mod&&k==="s"&&!(up&&up.dataset.busy)){
+      ev.preventDefault();
+      if(!$(ev.shiftKey?"btnSaveAs":"btnSave").disabled)saveArchive(ev.shiftKey);
+    }else blockAccel(ev);
+    return;
+  }
   if(mod&&k==="o"){ev.preventDefault();openArchiveDialog();}
   else if(mod&&k==="s"&&ev.shiftKey){ev.preventDefault();if(!$("btnSaveAs").disabled)saveArchive(true);}
   else if(mod&&k==="s"){ev.preventDefault();if(!$("btnSave").disabled)saveArchive();}
