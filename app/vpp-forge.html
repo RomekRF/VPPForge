@@ -5220,6 +5220,38 @@ function scrollToRow(id){
   const r=$("rows").querySelector('.row[data-id="'+id+'"]');
   if(r)r.scrollIntoView({block:"nearest"});
 }
+/* Type to jump, as in VPVIEW32 and Windows lists: a letter jumps to the
+   next file in the list starting with it, the same letter again to the
+   one after, round to the top. Letters typed quickly in a row spell out
+   more of the name instead. */
+const typeJump={buf:"",at:0};
+function jumpToTyped(ch){
+  const vis=visible().map(x=>x.e);
+  if(!vis.length)return;
+  const now=performance.now();
+  if(now-typeJump.at>1000)typeJump.buf="";
+  typeJump.at=now;
+  const buf=typeJump.buf+=ch.toLowerCase();
+  const curId=(state.cursor!=null&&vis.some(e=>e.id===state.cursor))?state.cursor:state.anchor;
+  const cur=vis.findIndex(e=>e.id===curId);
+  /* one letter, or one letter over and over: the next file after this
+     one. More letters: the first file from this one on that they start */
+  const again=[...buf].every(c=>c===buf[0]);
+  const want=again?buf[0]:buf,from=again?cur+1:Math.max(cur,0);
+  for(let n=0;n<vis.length;n++){
+    const e=vis[(from+n)%vis.length];
+    if(!e.name.toLowerCase().startsWith(want))continue;
+    if(!(state.sel.size===1&&state.sel.has(e.id))){   /* already on it: leave a playing preview be */
+      state.sel.clear();state.sel.add(e.id);
+      renderRows();renderChrome();renderPreview();
+    }
+    state.anchor=e.id;state.cursor=e.id;
+    scrollToRow(e.id);
+    return;
+  }
+}
+/* a dialog is up: keys are its, not the list's behind it */
+const modalOpen=()=>[...document.body.children].some(el=>el.style.zIndex==="400");
 function refreshList(){renderTree();renderRows();renderChrome();}
 function refreshAll(){assetIdx=null;renderTree();renderRows();renderChrome();renderPreview();}
 
@@ -6487,7 +6519,8 @@ function showShortcuts(){
     [["Open VPP","Ctrl O"],["Save VPP","Ctrl S"],["Save as…","Ctrl Shift S"],
      ["Undo","Ctrl Z"],["Redo","Ctrl Y"],
      ["Move through list","↑ / ↓"],["Extend selection","Shift ↑ / ↓"],
-     ["First / last file","Home / End"],["Select all","Ctrl A"],["Filter files","Ctrl F"],
+     ["First / last file","Home / End"],["Jump to a file by name","Type its first letters"],
+     ["Select all","Ctrl A"],["Filter files","Ctrl F"],
      ["Extract selected","Ctrl E"],["Extract selected to a folder…","Ctrl Shift E"],["Duplicate","Ctrl D"],["Rename","F2"],
      ["Remove selected","Del"],["Reorder file","Alt ↑ / ↓"],
      ["Play / pause animation or audio","Space"],["Full size preview","Enter"],
@@ -7079,7 +7112,7 @@ document.addEventListener("keydown",ev=>{
     if(state.sel.size){state.sel.clear();renderRows();renderChrome();renderPreview();}
     return;
   }
-  if(lbOpen)return;
+  if(lbOpen||modalOpen())return;
   if(mod&&k==="o"){ev.preventDefault();openArchiveDialog();}
   else if(mod&&k==="s"&&ev.shiftKey){ev.preventDefault();if(!$("btnSaveAs").disabled)saveArchive(true);}
   else if(mod&&k==="s"){ev.preventDefault();if(!$("btnSave").disabled)saveArchive();}
@@ -7133,6 +7166,11 @@ document.addEventListener("keydown",ev=>{
     }
   }
   else if(ev.key==="?")showShortcuts();
+  else if(!mod&&!ev.altKey&&ev.key.length===1&&!ev.isComposing&&$("menu").style.display!=="block"
+          &&!/^(SELECT|TEXTAREA)$/.test(ev.target.tagName)&&!ev.target.isContentEditable){
+    ev.preventDefault();
+    jumpToTyped(ev.key);
+  }
 });
 window.addEventListener("beforeunload",ev=>{if(state.dirty){ev.preventDefault();ev.returnValue="";}});
 

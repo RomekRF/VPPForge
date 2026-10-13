@@ -34,7 +34,8 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
 
 - Add, remove, rename, reorder and duplicate files; undo and redo.
 - Drag-select in the file list, select-all per file type, filtering, and
-  full keyboard navigation.
+  full keyboard navigation, including type-to-jump: press a letter to go to
+  the next file starting with it, as in VPVIEW32.
 - Replace TGA and PNG with DDS, one file or all of them: DXT1 or DXT5 by
   alpha, with or without mipmaps built into the DDS, down to the smallest
   level you pick. A TGA's own `-mip` files go into the DDS where they still

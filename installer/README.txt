@@ -49,10 +49,11 @@ USING IT
     match their texture are only replaced if you say so, and the
     low-detail skins characters use by name are never touched. Deleting,
     renaming or resizing a texture takes its mip files along.
-  - Arrow keys move through the list, Space plays and pauses an
-    animation or a sound, F2 renames, Del removes, Alt Up/Down
-    reorders, Ctrl S saves, Ctrl E extracts, Ctrl Shift E extracts to
-    a folder you pick, Ctrl F filters.
+  - Arrow keys move through the list, and typing a letter jumps to the
+    next file starting with it (type quickly to spell out more of the
+    name). Space plays and pauses an animation or a sound, F2 renames,
+    Del removes, Alt Up/Down reorders, Ctrl S saves, Ctrl E extracts,
+    Ctrl Shift E extracts to a folder you pick, Ctrl F filters.
     The full list is under Help > Keyboard shortcuts.
   - New versions install themselves: Help > Check for updates.
   - Light/dark theme and the panel-swap button sit at the top right;
