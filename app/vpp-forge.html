@@ -3344,7 +3344,11 @@ function commitSaved(nm){
   for(const e of state.entries){e.offset=off;off+=align2048(e.size);}
   state.dirty=false;
   if(nm)state.name=nm;
-  refreshAll();
+  /* saved from the full view (Ctrl S, or autosave): leave the side preview
+     be, as redrawing it stops the full view's 3D viewer or animation;
+     closing the full view redraws it */
+  assetIdx=null;refreshList();
+  if(!$("lightbox").classList.contains("open"))renderPreview();
 }
 const bakDone=new Set(); /* one .bak per file per session, made on first overwrite */
 let autosaveTimer=0;
