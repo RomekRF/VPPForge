@@ -119,7 +119,8 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
 - Start screen with recent files, light and dark themes, swappable panel
   layout, and preferences that persist between sessions.
 - Also ships as a single self-contained HTML file that runs in Chrome or
-  Edge with nothing to install.
+  Edge with nothing to install. In the desktop app, Help › Open browser
+  version writes that file out and opens it in your web browser.
 
 ## Download
 

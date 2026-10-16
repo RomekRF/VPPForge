@@ -6697,6 +6697,8 @@ const CHANGES=[
      "Esc closes the full view and lands back on the tables."],
     ["What's new: after an update VPP Forge shows what changed, in place of the install page.",
      "Versions you had not seen yet are marked New. Help › What's new opens it any time."],
+    ["Help › Open browser version opens VPP Forge's single-file browser build in your web browser.",
+     "It is written to VPPForge-Browser.html beside VPP Forge's settings and opened with your default browser."],
   ]},
   {v:"1.22.5",d:"2026-10-13",c:[
     ["Type to jump: press a letter to go to the next file starting with it, as in VPVIEW32.",
@@ -7005,6 +7007,14 @@ function showAbout(){
   ov.style.display="flex";
 }
 const REPO_URL="https://github.com/RomekRF/VPPForge";
+/* the single-file browser build: the exe writes its own copy of this page,
+   without the bridge, and opens it in the default browser */
+function openBrowserVersion(){
+  bridgeJson("/browser").then(j=>{
+    if(j&&j.ok)toast("Browser version opened in your web browser");
+    else toast("Could not open the browser version",true);
+  }).catch(()=>toast("Could not open the browser version",true));
+}
 function menuItems(which){
   const one=state.sel.size===1;
   const e=one?byId([...state.sel][0]):null;
@@ -7129,6 +7139,7 @@ function menuItems(which){
       ?"Update to "+updateInfo.latest+"…":"Check for updates…",
       fn:()=>checkForUpdates(true)},
     {label:"About VPP Forge",fn:showAbout},
+    ...(BRIDGE?[{label:"Open browser version",fn:openBrowserVersion}]:[]),
     {label:"VPP Forge on GitHub",fn:()=>window.open(REPO_URL,"_blank")},
   ]);
 }

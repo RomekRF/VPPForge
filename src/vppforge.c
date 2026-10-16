@@ -73,6 +73,7 @@ static volatile int g_quit = 0;
 static char g_recent_path[4096] = "";
 static int g_startup_path = -1; /* the file we were launched with, if any */
 static char g_settings_path[4096] = "";
+static char g_browser_path[4096] = ""; /* where Open browser version writes the page */
 static int g_just_installed = 0; /* this launch performed an install/update */
 static char g_prev_version[32] = ""; /* the version an install refresh replaced */
 #ifdef _WIN32
@@ -1135,6 +1136,15 @@ static void plat_reveal(const char *utf8path) {
     ShellExecuteW(NULL, L"open", L"explorer.exe", args, NULL, SW_SHOWNORMAL);
     free(wp);
 }
+/* open a file with whatever Windows opens its type with */
+static int plat_open_file(const char *utf8path) {
+    wchar_t *wp = utf8_to_wide(utf8path);
+    INT_PTR r;
+    if (!wp) return 0;
+    r = (INT_PTR)ShellExecuteW(NULL, L"open", wp, NULL, NULL, SW_SHOWNORMAL);
+    free(wp);
+    return r > 32;
+}
 
 static void remove_tree(const wchar_t *dir); /* fwd */
 static void remove_tree(const wchar_t *dir) {
@@ -1233,6 +1243,7 @@ static int plat_dialog_save(char *out, size_t cap, const char *suggest) {
     return 1;
 }
 static void plat_reveal(const char *p) { (void)p; }
+static int plat_open_file(const char *p) { (void)p; return 0; }
 static int plat_dialog_folder(char *out, size_t cap) {
     const char *p = getenv("VPPFORGE_TEST_FOLDER");
     if (!p) return 0;
@@ -1596,6 +1607,23 @@ static void handle_conn(sock_t s) {
         resp_json(s, "{\"ok\":1}");
         return;
     }
+    if (!strcmp(method, "GET") && route_is(target, "/browser")) {
+        /* the browser version is this same page without the bridge: write it
+           beside the settings and open it in the default browser */
+        char tmp[4200];
+        FILE *f;
+        if (!g_browser_path[0]) { resp_err(s, "500 No Folder"); return; }
+        snprintf(tmp, sizeof tmp, "%s.new", g_browser_path);
+        f = plat_fopen(tmp, "wb");
+        if (!f) { resp_err(s, "500 Write Failed"); return; }
+        if (fwrite(APP_HTML, 1, APP_HTML_LEN, f) != APP_HTML_LEN) {
+            fclose(f); remove(tmp); resp_err(s, "500 Write Failed"); return;
+        }
+        fclose(f);
+        if (plat_replace(tmp, g_browser_path) != 0) { remove(tmp); resp_err(s, "500 Replace Failed"); return; }
+        resp_json(s, plat_open_file(g_browser_path) ? "{\"ok\":1}" : "{\"ok\":0}");
+        return;
+    }
     if (!strcmp(method, "GET") && route_is(target, "/vpp/dir")) {
         int id = parse_id(target);
         if (id < 0) { resp_err(s, "404 Not Found"); return; }
@@ -1838,6 +1866,7 @@ int APIENTRY wWinMain(HINSTANCE hi, HINSTANCE hp, LPWSTR cl, int ns) {
         if (u) {
             snprintf(g_recent_path, sizeof g_recent_path, "%s\\recent.txt", u);
             snprintf(g_settings_path, sizeof g_settings_path, "%s\\settings.json", u);
+            snprintf(g_browser_path, sizeof g_browser_path, "%s\\VPPForge-Browser.html", u);
             free(u);
         }
     }
