@@ -30,6 +30,20 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   the textures a mesh references, with one click to select the mesh and
   everything it uses.
 
+**Game tables**
+
+- Tools › Game tables (Ctrl G) opens the RF Table Lookup over the file
+  list: entities, multiplayer characters, skins, movemodes, weapons, ammo,
+  items, clutter, materials, glares, vclips, explosions, emitters and
+  sounds, read from the game's `.tbl` files and grouped into Characters,
+  Gear, World, Effects, Audio and Files.
+- One search covers every table, then narrows to a group or a single
+  table. Each entry lists the files it uses, and each file lists the
+  entries that use it.
+- Right-click a model, texture, animation or sound and pick Find in game
+  tables to see what uses it. A file the tables name that is in the open
+  VPP or a linked one opens in the full view from its ↗ button.
+
 **Editing**
 
 - Add, remove, rename, reorder and duplicate files; undo and redo.
@@ -143,6 +157,7 @@ downloads go over HTTPS to this repository's releases.
 CI builds every push. To build locally, with MSYS2 or any MinGW-w64
 toolchain on PATH:
 
+    python3 tools/pack_tables.py
     python3 tools/embed.py app/vpp-forge.html src/app_html.h
     x86_64-w64-mingw32-windres resources/vppforge.rc -O coff -o res.o
     x86_64-w64-mingw32-gcc -O2 -municode -mwindows src/vppforge.c res.o -o vppforge.exe -lws2_32 -lcomdlg32 -ladvapi32 -lshell32 -luser32 -lole32 -luuid -lwininet -static -s
@@ -160,6 +175,8 @@ it and attaches all three downloads to a GitHub Release automatically.
     src/vppforge.c       native shell: server, bridge, dialogs, install, updater
     app/vpp-forge.html   the full application (also runs standalone in a browser)
     app/vfx.js           the VFX engine, as a standalone module for reuse
+    app/rf-tables.html   Game tables (RF Table Lookup), also runs on its own
+    tools/pack_tables.py packs rf-tables.html into vpp-forge.html
     tools/embed.py       embeds the html into the exe at build time
     resources/           icon, logo and the Windows version resource
     installer/           end-user README packaged with the exe
