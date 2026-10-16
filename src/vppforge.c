@@ -74,6 +74,7 @@ static char g_recent_path[4096] = "";
 static int g_startup_path = -1; /* the file we were launched with, if any */
 static char g_settings_path[4096] = "";
 static int g_just_installed = 0; /* this launch performed an install/update */
+static char g_prev_version[32] = ""; /* the version an install refresh replaced */
 #ifdef _WIN32
 static HANDLE g_browser_proc = NULL;
 #endif
@@ -1068,12 +1069,28 @@ static int installed_version_matches(void) {
         L"DisplayVersion", RRF_RT_REG_SZ, NULL, v, &sz) != ERROR_SUCCESS) return 0;
     return !wcscmp(v, WIDEN(VPP_VERSION));
 }
+/* the installed copy's version, kept to digits and dots for the page */
+static void note_prev_version(void) {
+    wchar_t v[64];
+    DWORD sz = sizeof v;
+    int i, n = 0;
+    if (RegGetValueW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VPPForge",
+        L"DisplayVersion", RRF_RT_REG_SZ, NULL, v, &sz) != ERROR_SUCCESS) return;
+    for (i = 0; v[i] && n < (int)sizeof g_prev_version - 1; i++)
+        if ((v[i] >= L'0' && v[i] <= L'9') || v[i] == L'.') g_prev_version[n++] = (char)v[i];
+    g_prev_version[n] = 0;
+}
 static void maybe_offer_setup(void) {
     DWORD declined = 0, sz = sizeof declined;
     if (is_installed()) {
         /* an older version is installed: refresh it in place so the .vpp
-           association, Start Menu entry and Apps listing point at this build */
-        if (!installed_version_matches()) g_just_installed = do_install();
+           association, Start Menu entry and Apps listing point at this build;
+           the page shows what changed since the version it replaces */
+        if (!installed_version_matches()) {
+            note_prev_version();
+            g_just_installed = do_install();
+        }
         return;
     }
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\VPPForge", L"SetupDeclined",
@@ -1693,12 +1710,12 @@ static int strncasecmp_portable(const char *a, const char *b, size_t n) {
 /* ------------------------------------------------------------- startup --- */
 
 static void build_page(void) {
-    char inject[256];
+    char inject[320];
     const char *mark;
     size_t before, marklen = strlen(BRIDGE_MARK);
     int il = snprintf(inject, sizeof inject,
-        "<script>window.VPP_BRIDGE={token:\"%s\",ver:\"%s\",installed:%d};</script>",
-        g_token, VPP_VERSION, g_just_installed);
+        "<script>window.VPP_BRIDGE={token:\"%s\",ver:\"%s\",installed:%d,prev:\"%s\"};</script>",
+        g_token, VPP_VERSION, g_just_installed, g_prev_version);
     mark = (const char *)memmem_portable(APP_HTML, APP_HTML_LEN, BRIDGE_MARK, marklen);
     if (!mark) { g_page = (char *)APP_HTML; g_page_len = APP_HTML_LEN; return; }
     before = (size_t)((const unsigned char *)mark - APP_HTML);

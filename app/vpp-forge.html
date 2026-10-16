@@ -509,6 +509,23 @@ body.dragging.no-doc #dropVeil{display:none}
 #tbBody{flex:1; min-height:0; position:relative}
 #tbBody iframe{position:absolute; inset:0; width:100%; height:100%; border:0; display:block}
 #tbLoad{position:absolute; inset:0; display:grid; place-items:center; color:var(--text-3); font:500 12px var(--sans)}
+/* What's new: one dated entry per release, one line per change */
+#wnCard{background:var(--surface); color:var(--text); border:1px solid var(--border-2); border-radius:var(--r); box-shadow:var(--shadow);
+  width:min(700px,calc(100% - 48px)); max-height:calc(100% - 48px); display:flex; flex-direction:column}
+#wnHead{padding:20px 24px 12px}
+#wnHead h2{font-size:16px; margin-bottom:2px}
+#wnHead h2 span{color:var(--text-3); font-weight:400; font-size:12px}
+#wnHead p{color:var(--text-2)}
+#wnBody{flex:1; min-height:0; overflow:auto; padding:2px 24px 16px; background:var(--bg); border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
+.wn-ver h3{display:flex; align-items:baseline; gap:8px; margin:16px 0 6px; font:600 14px var(--sans)}
+.wn-ver h3 .d{font-weight:400; font-size:12px; color:var(--text-3)}
+.wn-ver h3 .new{align-self:center; font:600 9.5px var(--sans); letter-spacing:.08em; text-transform:uppercase; color:#fff; background:var(--accent); border-radius:3px; padding:1px 5px}
+.wn-ver ul{margin:0 0 0 18px; display:flex; flex-direction:column; gap:6px}
+.wn-ver li .more{display:none; color:var(--text-2); margin-top:2px}
+#whatsnew.full .wn-ver li .more{display:block}
+#wnFoot{display:flex; align-items:center; gap:12px; padding:12px 24px}
+#wnFoot label{display:flex; align-items:center; gap:6px; color:var(--text-2); cursor:pointer; user-select:none}
+#wnFoot .hint{flex:1; text-align:right; color:var(--text-3); font-size:11.5px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -6663,6 +6680,162 @@ function showShortcuts(){
     menuBtn("help")
   );
 }
+/* What's new, newest first: one line per change, and the longer note that
+   Show full notes adds. The first entry must be the version in
+   src/version.h; CI checks (tools/check_changelog.py). */
+const CHANGES=[
+  {v:"1.23.0",d:"2026-10-16",c:[
+    ["Game tables: Tools › Game tables (Ctrl G) opens the RF Table Lookup over the file list.",
+     "Entities, multiplayer characters, skins, movemodes, weapons, ammo, items, clutter, materials, glares, vclips, explosions, emitters and sounds from the game's .tbl files, with what each entry uses and what uses each file. It follows the Classic and Dark themes."],
+    ["Game tables: the tables are grouped into Characters, Gear, World, Effects, Audio and Files, with the group's tables in a second row.",
+     "Nothing hides behind a scrolling row of tabs any more. Alt+1 to 6 opens a group, Back sits in the menu, and the table you used last comes back next time."],
+    ["Game tables: one search covers every table, then narrows to a group or a single table.",
+     "Each group and table shows how many matches it holds. Esc clears the search and leaves the entry you picked open in its own table. Vclips, explosions, emitters, materials and movemodes are searched too."],
+    ["Game tables: right-click a model, texture, animation or sound and pick Find in game tables to see what uses it.",
+     "The tables name files the way the original tools did, so a .v3c is found as .vcm, a .v3m as .v3d and an .rfa as .mvf."],
+    ["Game tables: a file the tables name that is in the open VPP or a linked one opens in the full view from its ↗ button.",
+     "Esc closes the full view and lands back on the tables."],
+    ["What's new: after an update VPP Forge shows what changed, in place of the install page.",
+     "Versions you had not seen yet are marked New. Help › What's new opens it any time."],
+  ]},
+  {v:"1.22.5",d:"2026-10-13",c:[
+    ["Type to jump: press a letter to go to the next file starting with it, as in VPVIEW32.",
+     "Press it again for the one after; type a few letters quickly to spell out more of the name. It follows the list as shown: the sort, the filter, the type picked in the tree, or a linked VPP."],
+    ["Keys no longer act on the file list behind an open window such as About, Getting started or the updater.",
+     "Before, Delete there removed the selected files behind it."],
+    ["Ctrl S and Ctrl Shift S save behind open windows and in the full-size view.",
+     "Chrome's own Save page and Open file windows no longer pop up in their place."],
+    "Saving from the full-size view leaves a 3D model or animation running.",
+    "After a duplicate, a right-click, a drag-select or select-all, the arrow keys move on from the file now selected.",
+    "A notice raised while a window is open shows above it.",
+  ]},
+  {v:"1.22.4",d:"2026-10-08",c:[
+    ["VPP Forge opens maximized and fits above the taskbar.",
+     "It used to open at a fixed size that could run under the taskbar with display scaling of 125% or more, or with Make text bigger turned up."],
+    ["Selected rows are easy to see in the Dark theme, with a solid orange fill and a brighter bar.",
+     "The tree's selected entry too. Search matches on a selected row are white and underlined, Classic theme icons turn white on the blue, and Windows contrast themes use the system highlight colour."],
+    ["Notifications show in the empty middle of the title bar instead of at the bottom of the window.",
+     "A long one goes just under the toolbar, stays up longer and moves clear of an open menu. They never block a click."],
+  ]},
+  {v:"1.22.3",d:"2026-10-08",c:[
+    ["Replace with DDS has one Mipmaps list, with None first.",
+     "It replaces an easy-to-miss checkbox, and None is remembered for next time."],
+    "Build mipmaps for every DDS from the Textures · DDS row of the tree.",
+    ["Extract To (Ctrl Shift E) puts everything in one folder you pick.",
+     "Extract still sends each type to its own export folder."],
+    "Fixed: extracting from a linked VPP you were browsing did nothing.",
+    ["VPP checks flag DDS mip chains the game mishandles.",
+     "Exactly two levels on a texture over 16 pixels, levels past where the short side reaches 1, a mip count of zero, and a mipmapped DXT over 16 pixels whose sides are not multiples of 16. Build mipmaps fixes the first three."],
+    "Labels read in Title Case: All Files, Static Meshes, DDS Texture.",
+  ]},
+  {v:"1.22.2",d:"2026-09-29",c:[
+    ["Build mipmaps for DDS, down to the smallest level you choose.",
+     "From 1 × 1 to 128 × 128. A DXT texture keeps its full-size image byte for byte and gets its smaller levels in the same format. ATX frames and DDS files with a DX10 header are left alone."],
+    ["Replace with DDS works on TGA and PNG and builds the mipmaps in.",
+     "A TGA's own mip files go into the DDS where they still match it, so hand-tuned levels survive. PNG is read the way Alpine reads it."],
+    "Build mipmaps on a TGA writes -mip1 and -mip2 files, named and sized the way the game looks for them.",
+    ["Textures are found in the order the game uses: ATX, DDS, PNG and JPEG, then stock RF's .tga and .vbm rules.",
+     "The texture names above the viewer, the 3D preview and Extract mesh and textures all agree on the file the game loads."],
+    "VPP checks flag texture names over 31 characters, which the game loads wrong or not at all.",
+    "Fixed: Tools › Link VPPs for previews did nothing.",
+    "Fixed: Resize changed formats it should have kept, such as a 32-bit TGA or a DXT1 cut-out.",
+    "Fixed: files past the 2 GB mark of a large linked VPP could not be read.",
+  ]},
+  {v:"1.22.1",d:"2026-08-27",c:[
+    ["A new release shows its update card the first time it turns up.",
+     "It remembers which version it offered, so the same release never interrupts twice. Later leaves a dot on the Help menu as the reminder."],
+  ]},
+  {v:"1.22.0",d:"2026-08-27",c:[
+    ["Link other VPPs as read-only sources, so models find textures and animations kept elsewhere.",
+     "Tools › Link VPPs for previews, or Find missing textures in the viewer, which links the Red Faction install."],
+    "Double-click a .v3m, .v3c, .vfx, .vbm, .rfa, .mvf or .vf to open it straight in its viewer.",
+    "PNG and JPEG textures from Alpine Faction 1.4 preview and stand in for a mesh's .tga.",
+    "Resize one image or a selection, by percentage or to an exact size.",
+    "Export folders per file type, and Extract mesh and textures on the right-click menu.",
+    "A character lists only the animations that fit its rig.",
+    "Clicking a texture name above the 3D viewer opens it over the model instead of leaving it.",
+    "Fixed: saving a very large VPP could fail with Array buffer allocation failed.",
+  ]},
+  {v:"1.20.1",d:"2026-08-13",c:[
+    "Check for updates explains itself in the browser build and links the download.",
+    "Ctrl Shift S saves as and Ctrl E extracts; Help › Keyboard shortcuts lists them all.",
+  ]},
+  {v:"1.20.0",d:"2026-08-12",c:[
+    ["VPP Forge updates itself: Help › Check for updates installs the new version and restarts.",
+     "It checks for new releases in the background and warns you to save first."],
+  ]},
+  {v:"1.16.3",d:"2026-08-09",c:[
+    "V3C characters load as real skeletons and play RFA animations.",
+    "VFX effects render with their textures and play their animation.",
+    "Save and Save As are separate, autosave is there, and the first overwrite leaves a .vpp.bak.",
+    "Undo and redo, duplicate, copy names, drag-select and select-all per type.",
+    "Replace all TGA with DDS, DXT1 or DXT5 by alpha.",
+    "Swappable panels, Classic and Dark themes, and a start screen with recent files.",
+  ]},
+  {v:"1.13.0",d:"2026-07-28",c:[
+    "First release: browse, preview, build and save byte-exact VPP v1 files.",
+    "Viewers for textures, meshes, fonts, animations, levels, tables and audio.",
+    "Successor to Descent Manager VPPBUILDER32 and VPVIEW32.",
+  ]},
+];
+const APP_VERSION=(BRIDGE&&BRIDGE.ver)||CHANGES[0].v;
+function verCmp(a,b){
+  const x=String(a).split(".").map(Number),y=String(b).split(".").map(Number);
+  for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]||0)-(y[i]||0);if(d)return d<0?-1:1;}
+  return 0;
+}
+/* since: the version this copy last ran; what came after it is marked New */
+function showWhatsNew(since){
+  let ov=$("whatsnew");
+  if(!ov){
+    ov=document.createElement("div");
+    ov.id="whatsnew";
+    ov.style.cssText="position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)";
+    document.body.appendChild(ov);
+  }
+  const isNew=v=>since&&verCmp(v,since)>0&&verCmp(v,APP_VERSION)<=0;
+  const fresh=CHANGES.filter(r=>isNew(r.v)).length;
+  ov.classList.toggle("full",!!APP_SETTINGS.fullNotes);
+  ov.innerHTML=
+    '<div id="wnCard" role="dialog" aria-label="What\'s new">'
+    +'<div id="wnHead"><h2>What\'s new in VPP Forge <span>v'+esc(APP_VERSION)+'</span></h2>'
+    +'<p>'+(fresh?"Updated from "+esc(since)+". What changed since then is marked New."
+                 :"Newest first, one line per change.")+'</p></div>'
+    +'<div id="wnBody">'+CHANGES.map(r=>
+      '<div class="wn-ver"><h3>'+esc(r.v)+'<span class="d">'+esc(r.d)+'</span>'+(isNew(r.v)?'<span class="new">New</span>':"")+'</h3><ul>'
+      +r.c.map(c=>{const [line,more]=Array.isArray(c)?c:[c,""];
+        return "<li>"+esc(line)+(more?'<div class="more">'+esc(more)+"</div>":"")+"</li>";}).join("")
+      +"</ul></div>").join("")+'</div>'
+    +'<div id="wnFoot"><label><input type="checkbox" id="wnFull"'+(APP_SETTINGS.fullNotes?" checked":"")+'>Show full notes</label>'
+    +'<span class="hint">Help › What\'s new opens this again.</span>'
+    +'<button class="btn outline" id="wnClose">Close</button></div>'
+    +'</div>';
+  const close=()=>{ov.remove();document.removeEventListener("keydown",onKey,true);};
+  const onKey=ev=>{if(ev.key==="Escape"){ev.preventDefault();ev.stopPropagation();close();}};
+  document.addEventListener("keydown",onKey,true);
+  ov.addEventListener("mousedown",ev=>{if(ev.target===ov)close();});
+  $("wnClose").addEventListener("click",close);
+  $("wnFull").addEventListener("change",ev=>{
+    APP_SETTINGS.fullNotes=ev.target.checked?1:0;saveSettings();
+    ov.classList.toggle("full",ev.target.checked);
+  });
+  ov.style.display="flex";
+  $("wnClose").focus();
+}
+/* At startup, once the settings are in: the welcome page after a fresh
+   install, What's new after an update. seenVer is the version this copy
+   last ran; prev is the version an install refresh replaced. Settings with
+   no seenVer come from a release before notes were kept. */
+function versionNotes(){
+  const seen=APP_SETTINGS.seenVer||"",prev=(BRIDGE&&BRIDGE.prev)||"";
+  if(BRIDGE&&BRIDGE.installed&&!prev&&!seen)showWelcome(true);
+  else{
+    const used=Object.keys(APP_SETTINGS).length>0;
+    const from=seen||prev||(used&&CHANGES[1]?CHANGES[1].v:"");
+    if(from&&verCmp(from,APP_VERSION)<0)showWhatsNew(from);
+  }
+  if(seen!==APP_VERSION){APP_SETTINGS.seenVer=APP_VERSION;saveSettings();}
+}
 function showWelcome(justInstalled){
   let ov=$("welcome");
   if(!ov){
@@ -6672,7 +6845,7 @@ function showWelcome(justInstalled){
     ov.addEventListener("mousedown",ev=>{if(ev.target===ov)ov.remove();});
     document.body.appendChild(ov);
   }
-  const ver=(BRIDGE&&BRIDGE.ver)?BRIDGE.ver:"";
+  const ver=APP_VERSION;
   const h3='style="font:600 10px var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);margin:16px 0 6px"';
   const ul='style="margin:0 0 2px 17px;color:var(--text-2);display:flex;flex-direction:column;gap:4px"';
   ov.innerHTML=
@@ -6815,7 +6988,7 @@ function showAbout(){
     ov.addEventListener("mousedown",ev=>{if(ev.target===ov)ov.remove();});
     document.body.appendChild(ov);
   }
-  const ver=(BRIDGE&&BRIDGE.ver)?"v"+BRIDGE.ver:"";
+  const ver="v"+APP_VERSION;
   ov.innerHTML=
     '<div style="background:var(--surface);color:var(--text);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow);max-width:430px;width:calc(100% - 48px);padding:28px 26px;text-align:center">'
     +'<span class="mark es-mark" style="margin:0 auto"></span>'
@@ -6949,6 +7122,7 @@ function menuItems(which){
   }
   return Promise.resolve([
     {label:"Getting started",fn:()=>showWelcome(false)},
+    {label:"What's new",fn:()=>showWhatsNew("")},
     {label:"Keyboard shortcuts",k:"?",fn:showShortcuts},
     "-",
     {label:(updateInfo&&updateInfo.ok&&updateInfo.available)
@@ -7544,17 +7718,17 @@ syncNoDoc();
     if(APP_SETTINGS.sideW)sidebar.style.width=Math.min(560,Math.max(260,APP_SETTINGS.sideW))+"px";
     if(APP_SETTINGS.treeH)setTreeH(Math.max(66,APP_SETTINGS.treeH));
     if(APP_SETTINGS.sideW||APP_SETTINGS.treeH)refitAll();
+    versionNotes();
   };
   if(BRIDGE)bridgeJson("/settings").then(apply).catch(()=>{});
   else{try{apply(JSON.parse(localStorage.getItem("vppforge-settings")||"{}"));}catch(_){}}
 })();
+$("esVer").textContent="v"+APP_VERSION;
 if(BRIDGE){
-  if(BRIDGE.ver)$("esVer").textContent="v"+BRIDGE.ver;
   const opened=bridgeJson("/open").then(j=>{
     if(j&&j.id!=null)return bridgeLoad(j.id,j.name);
     renderEmptyRecents();
   }).catch(()=>{});
-  if(BRIDGE.installed)showWelcome(true);
   /* quiet check a few seconds in, so it never delays opening a file */
   setTimeout(()=>checkForUpdates(false),4000);
   /* Only when it has been asked for, and never for a single opened file:

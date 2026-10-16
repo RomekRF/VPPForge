@@ -110,6 +110,9 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
 
 - Updates itself: it checks for new releases in the background, and
   Help › Check for updates installs one and restarts, with no reinstall.
+- After an update, What's new lists every release's changes, newest
+  first, one line each with fuller notes on request, and marks the ones
+  you had not seen. Help › What's new opens it any time.
 - Optional per-user setup on first run (no admin) that adds the `.vpp`
   file association, a Start Menu entry and an Apps uninstall entry.
   Decline it and the exe simply runs.
@@ -165,8 +168,9 @@ toolchain on PATH:
 For an unreleased build, open the **Actions** tab and download the
 artifacts from the latest green `build-windows` run.
 
-To publish a release, bump `src/version.h` and push a matching version
-tag (`git tag v1.20.0 && git push origin v1.20.0`); the workflow builds
+To publish a release, bump `src/version.h`, add its notes at the top of
+`CHANGES` in `app/vpp-forge.html` (CI fails the build without them), and
+push a matching version tag (`git tag v1.20.0 && git push origin v1.20.0`); the workflow builds
 it and attaches all three downloads to a GitHub Release automatically.
 
 ## Layout
@@ -177,6 +181,7 @@ it and attaches all three downloads to a GitHub Release automatically.
     app/vfx.js           the VFX engine, as a standalone module for reuse
     app/rf-tables.html   Game tables (RF Table Lookup), also runs on its own
     tools/pack_tables.py packs rf-tables.html into vpp-forge.html
+    tools/check_changelog.py  checks What's new has notes for this version
     tools/embed.py       embeds the html into the exe at build time
     resources/           icon, logo and the Windows version resource
     installer/           end-user README packaged with the exe
