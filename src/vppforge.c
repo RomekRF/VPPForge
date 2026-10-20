@@ -78,6 +78,9 @@ static int g_just_installed = 0; /* this launch performed an install/update */
 static char g_prev_version[32] = ""; /* the version an install refresh replaced */
 #ifdef _WIN32
 static HANDLE g_browser_proc = NULL;
+static WINDOWPLACEMENT g_win_last; /* where the window is now, once seen */
+static volatile int g_win_got = 0;
+static void save_placement(const WINDOWPLACEMENT *wp);
 #endif
 
 /* ---------------------------------------------------------------- utils -- */
@@ -837,6 +840,7 @@ static void update_apply_and_restart(void) {
     GetModuleFileNameW(NULL, self, MAX_PATH * 2);
     _snwprintf(old, MAX_PATH * 2 - 1, L"%s.old", self); old[MAX_PATH * 2 - 1] = 0;
     DeleteFileW(old);
+    if (g_win_got) save_placement(&g_win_last); /* the new build opens where this one was */
     if (g_browser_proc) TerminateProcess(g_browser_proc, 0);
     /* a running exe can be renamed, just not replaced in place */
     if (MoveFileExW(self, old, MOVEFILE_REPLACE_EXISTING) &&
@@ -1165,6 +1169,63 @@ static void remove_tree(const wchar_t *dir) {
     RemoveDirectoryW(dir);
 }
 
+/* ---- the window reopens where it was closed ----
+   Chrome gets a fresh profile every run, so it cannot remember the window
+   itself, and size flags are in Chrome's own units, which Windows scaling
+   and "Make text bigger" throw off. So the exe reads the window's placement
+   while it is open and puts it back after the next launch, both in physical
+   pixels (per-monitor DPI aware for just those calls). */
+#define DPI_PER_MONITOR_V2 ((void *)(LONG_PTR)-4)
+static void *set_thread_dpi(void *ctx) {
+    typedef void *(WINAPI *fn_t)(void *);
+    static fn_t fn = NULL;
+    static int looked = 0;
+    if (!looked) {
+        HMODULE u = GetModuleHandleW(L"user32.dll");
+        fn = u ? (fn_t)(void (*)(void))GetProcAddress(u, "SetThreadDpiAwarenessContext") : NULL;
+        looked = 1;
+    }
+    return fn ? fn(ctx) : NULL;
+}
+struct find_win { DWORD pid; HWND hwnd; };
+static BOOL CALLBACK find_win_cb(HWND h, LPARAM lp) {
+    struct find_win *f = (struct find_win *)lp;
+    DWORD pid = 0;
+    wchar_t cls[32];
+    GetWindowThreadProcessId(h, &pid);
+    if (pid != f->pid || !IsWindowVisible(h) || GetWindow(h, GW_OWNER)) return TRUE;
+    if (!GetClassNameW(h, cls, 32) || wcscmp(cls, L"Chrome_WidgetWin_1")) return TRUE;
+    f->hwnd = h;
+    return FALSE;
+}
+static HWND browser_window(DWORD pid) {
+    struct find_win f;
+    f.pid = pid; f.hwnd = NULL;
+    EnumWindows(find_win_cb, (LPARAM)&f);
+    return f.hwnd;
+}
+/* the last placement, if it is still on a monitor that exists */
+static int load_placement(WINDOWPLACEMENT *wp) {
+    DWORD sz = sizeof *wp;
+    void *old;
+    HMONITOR m;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\VPPForge", L"WindowPlacement",
+                     RRF_RT_REG_BINARY, NULL, wp, &sz) != ERROR_SUCCESS) return 0;
+    if (sz != sizeof *wp || wp->length != sizeof *wp) return 0;
+    old = set_thread_dpi(DPI_PER_MONITOR_V2);
+    m = MonitorFromRect(&wp->rcNormalPosition, MONITOR_DEFAULTTONULL);
+    set_thread_dpi(old);
+    return m != NULL;
+}
+static void save_placement(const WINDOWPLACEMENT *wp) {
+    HKEY k;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\VPPForge", 0, NULL, 0, KEY_WRITE,
+                        NULL, &k, NULL) == ERROR_SUCCESS) {
+        RegSetValueExW(k, L"WindowPlacement", 0, REG_BINARY, (const BYTE *)wp, sizeof *wp);
+        RegCloseKey(k);
+    }
+}
+
 static void plat_launch_and_wait(const char *url_utf8) {
     wchar_t browser[MAX_PATH * 2];
     wchar_t profile[MAX_PATH * 2];
@@ -1173,7 +1234,11 @@ static void plat_launch_and_wait(const char *url_utf8) {
     wchar_t *wurl = utf8_to_wide(url_utf8);
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
+    WINDOWPLACEMENT saved;
+    int have, maxed;
     if (!wurl) return;
+    have = load_placement(&saved);
+    maxed = !have || saved.showCmd == SW_SHOWMAXIMIZED;
     if (!find_browser(browser, MAX_PATH * 2)) {
         /* no Chromium found: fall back to the default browser as a tab */
         ShellExecuteW(NULL, L"open", wurl, NULL, NULL, SW_SHOWNORMAL);
@@ -1184,22 +1249,45 @@ static void plat_launch_and_wait(const char *url_utf8) {
     _snwprintf(profile, MAX_PATH * 2 - 1, L"%sVPPForge-Profile-%lu", tmp,
                (unsigned long)GetCurrentProcessId());
     profile[MAX_PATH * 2 - 1] = 0;
-    /* Open maximized, on the main screen. The old fixed --window-size=1360,900
-       ran under the taskbar once Windows scaling or "Make text bigger" (which
-       Chrome and Edge scale their whole window by) left less room than that,
-       and any size given makes Chrome ignore --start-maximized. Restored,
-       the window takes Chrome's default size, which fits the screen. */
+    /* Maximized the first time, and whenever it was closed maximized. No size
+       flags: the old fixed --window-size=1360,900 ran under the taskbar once
+       Windows scaling or "Make text bigger" (which Chrome and Edge scale their
+       whole window by) left less room than that, and any size given makes
+       Chrome ignore --start-maximized. A smaller window is put back once it
+       shows, below. */
     _snwprintf(cmd, MAX_PATH * 5 - 1,
                L"\"%s\" --app=%s --user-data-dir=\"%s\" --no-first-run "
-               L"--no-default-browser-check --new-window --start-maximized",
-               browser, wurl, profile);
+               L"--no-default-browser-check --new-window%s",
+               browser, wurl, profile, maxed ? L" --start-maximized" : L"");
     cmd[MAX_PATH * 5 - 1] = 0;
     memset(&si, 0, sizeof si);
     si.cb = sizeof si;
     if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        HWND win = NULL;
+        int placed = !have;
         CloseHandle(pi.hThread);
         g_browser_proc = pi.hProcess;
-        WaitForSingleObject(pi.hProcess, INFINITE);
+        /* Watch for the window: put it where it was last time (quickly, so the
+           default size barely shows), then keep note of where it is. Minimized
+           is not kept: it reopens as it was before. */
+        while (WaitForSingleObject(pi.hProcess, placed ? 250 : 30) == WAIT_TIMEOUT) {
+            void *old;
+            if (!win || !IsWindow(win)) win = browser_window(pi.dwProcessId);
+            if (!win) continue;
+            old = set_thread_dpi(DPI_PER_MONITOR_V2);
+            if (!placed) {
+                WINDOWPLACEMENT wp = saved;
+                wp.flags = 0;
+                SetWindowPlacement(win, &wp);
+                placed = 1;
+            } else {
+                WINDOWPLACEMENT wp;
+                wp.length = sizeof wp;
+                if (GetWindowPlacement(win, &wp) && wp.showCmd != SW_SHOWMINIMIZED) { g_win_last = wp; g_win_got = 1; }
+            }
+            set_thread_dpi(old);
+        }
+        if (g_win_got) save_placement(&g_win_last);
         g_browser_proc = NULL;
         CloseHandle(pi.hProcess);
     } else {

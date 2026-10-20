@@ -104,7 +104,8 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
 - Save writes the VPP back in place with an atomic replace, so an
   interrupted save cannot corrupt the file. Save As writes elsewhere.
 - Autosave keeps opened VPPs written to disk, and the first overwrite of
-  a session leaves a `.vpp.bak` of the original.
+  a session leaves a `.vpp.bak` of the original. Tools › Keep .vpp.bak
+  backups turns the backup off.
 
 **The app itself**
 
@@ -117,7 +118,8 @@ successor to Descent Manager VPPBUILDER32 and VPVIEW32.
   file association, a Start Menu entry and an Apps uninstall entry.
   Decline it and the exe simply runs.
 - Start screen with recent files, light and dark themes, swappable panel
-  layout, and preferences that persist between sessions.
+  layout, and preferences that persist between sessions. The window
+  reopens at the size and place it was closed.
 - Also ships as a single self-contained HTML file that runs in Chrome or
   Edge with nothing to install. In the desktop app, Help › Open browser
   version writes that file out and opens it in your web browser.

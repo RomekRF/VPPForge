@@ -3395,8 +3395,9 @@ function commitSaved(nm){
 const bakDone=new Set(); /* one .bak per file per session, made on first overwrite */
 let autosaveTimer=0;
 const autosaveOn=()=>(APP_SETTINGS.autosave??1)===1;
+const backupOn=()=>(APP_SETTINGS.backup??1)===1; /* Tools: the .vpp.bak, on unless turned off */
 function bridgeSaveTo(id,nm,blob,quiet){
-  const bak=!bakDone.has(id);
+  const bak=backupOn()&&!bakDone.has(id);
   return fetch(bridgeUrl("/save?id="+id+(bak?"&bak=1":"")),{method:"POST",body:blob})
     .then(r=>{if(!r.ok)throw 0;return r.json();})
     .then(()=>{
@@ -6684,6 +6685,12 @@ function showShortcuts(){
    Show full notes adds. The first entry must be the version in
    src/version.h; CI checks (tools/check_changelog.py). */
 const CHANGES=[
+  {v:"1.23.1",d:"2026-10-20",c:[
+    ["VPP Forge reopens at the size and place you closed it, on the same screen.",
+     "Closed maximized, it opens maximized, as it does the very first time. A small window stays small, handy for dragging files in."],
+    ["Tools › Keep .vpp.bak backups turns off the .vpp.bak made on the first save of each session.",
+     "It stays on unless you turn it off, and the choice is remembered."],
+  ]},
   {v:"1.23.0",d:"2026-10-16",c:[
     ["Game tables: Tools › Game tables (Ctrl G) opens the RF Table Lookup over the file list.",
      "Entities, multiplayer characters, skins, movemodes, weapons, ammo, items, clutter, materials, glares, vclips, explosions, emitters and sounds from the game's .tbl files, with what each entry uses and what uses each file. It follows the Classic and Dark themes."],
@@ -7074,6 +7081,11 @@ function menuItems(which){
         APP_SETTINGS.autosave=autosaveOn()?0:1;saveSettings();
         toast(autosaveOn()?"Autosave on · opened VPPs save automatically":"Autosave off · save with Ctrl S");
         renderChrome();
+      }},
+      {label:"Keep .vpp.bak backups · "+(backupOn()?"on":"off"),off:!BRIDGE,fn:()=>{
+        APP_SETTINGS.backup=backupOn()?0:1;saveSettings();
+        toast(backupOn()?"Backups on · the first save of a session keeps the original as .vpp.bak"
+                        :"Backups off · saving no longer leaves a .vpp.bak");
       }},
       "-",
       {label:"Restore VPP order",icon:IC.order,off:!sorted,fn:()=>{state.sortKey=null;renderRows();}},
