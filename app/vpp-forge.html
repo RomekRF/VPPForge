@@ -7176,7 +7176,7 @@ function menuItems(which){
     {label:"Keyboard shortcuts",k:"?",fn:showShortcuts},
     "-",
     {label:(updateInfo&&updateInfo.ok&&updateInfo.available)
-      ?"Update to "+updateInfo.latest+"…":"Check for updates…",
+      ?"Update to "+String(updateInfo.latest).replace(/^v/i,"")+"…":"Check for updates…",
       fn:()=>checkForUpdates(true)},
     {label:"About VPP Forge",fn:showAbout},
     ...(BRIDGE?[{label:"Open browser version",fn:openBrowserVersion}]:[]),

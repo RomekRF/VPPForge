@@ -11,6 +11,7 @@ version in src/version.h.
 """
 import hashlib
 import json
+import os
 import re
 import sys
 
@@ -20,8 +21,10 @@ SHIPPED = [("VPPForge-Desktop-Win64.zip", "dist/VPPForge-Desktop-Win64.zip"),
            ("vppforge.exe", "vppforge.exe")]
 
 
-def js_strings_and_brackets(src):
-    """Tokens of a JS array literal: '[', ']', or a decoded "..." string."""
+def js_strings_and_brackets(src, ver):
+    """Tokens of a JS array literal: '[', ']', or a decoded "..." string.
+    Anything else (a single-quoted string, a template, a comment) stops the
+    build rather than publishing wrong text."""
     out, i = [], 0
     while i < len(src):
         ch = src[i]
@@ -34,16 +37,20 @@ def js_strings_and_brackets(src):
                 j += 2 if src[j] == "\\" else 1
             out.append(json.loads(src[i:j + 1].replace("\\'", "'")))
             i = j + 1
-        else:
+        elif ch in ", \t\r\n":
             i += 1
+        else:
+            sys.exit("release_notes: %s: unexpected %r in What's new; write each change as "
+                     "\"...\" or [\"line\", \"note\"]" % (ver, src[i:i + 20]))
     return out
 
 
 def changes(html):
     """The CHANGES entries, newest first: (version, date, [(line, note)])."""
     start = html.index("const CHANGES=[")
+    end = html.index("\n];", start)
     entries = []
-    for m in re.finditer(r'\{v:"([^"]+)",d:"(\d{4}-\d\d-\d\d)",c:\[', html[start:]):
+    for m in re.finditer(r'\{v:"([^"]+)",d:"(\d{4}-\d\d-\d\d)",c:\[', html[start:end]):
         body_at = start + m.end()
         depth, k = 1, body_at
         while depth:        # find the c:[ ... ] close, skipping strings
@@ -56,12 +63,16 @@ def changes(html):
             elif html[k] == "]":
                 depth -= 1
             k += 1
-        toks = js_strings_and_brackets(html[body_at:k - 1])
+        toks = js_strings_and_brackets(html[body_at:k - 1], m.group(1))
         items, pair = [], None
         for t in toks:
             if t == "[":
+                if pair is not None:
+                    sys.exit("release_notes: %s: a [line, note] pair inside another" % m.group(1))
                 pair = []
             elif t == "]":
+                if pair is None or not 1 <= len(pair) <= 2:
+                    sys.exit("release_notes: %s: a change must be \"line\" or [\"line\", \"note\"]" % m.group(1))
                 items.append((pair[0], pair[1] if len(pair) > 1 else ""))
                 pair = None
             elif pair is not None:
@@ -83,8 +94,8 @@ def sha256(path):
 def main():
     out = sys.argv[1]
     ver = re.search(r'#define VPP_VERSION\s+"([^"]+)"', open("src/version.h", encoding="utf-8").read()).group(1)
-    if len(sys.argv) > 2 and sys.argv[2].lstrip("vV") != ver:
-        sys.exit("release_notes: tag %s does not match version.h %s" % (sys.argv[2], ver))
+    if len(sys.argv) > 2 and sys.argv[2] != "v" + ver:
+        sys.exit("release_notes: tag %s does not match version.h; it should be v%s" % (sys.argv[2], ver))
     entries = changes(open("app/vpp-forge.html", encoding="utf-8").read())
     if not entries or entries[0][0] != ver:
         sys.exit("release_notes: What's new does not start at %s" % ver)
@@ -119,6 +130,9 @@ def main():
     md += ["```", ""]
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(md))
+    if os.environ.get("GITHUB_OUTPUT"):     # the release title, for the release step
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+            f.write("title=VPP Forge %s\n" % ver)
     print("release_notes: %s, %d changes, written to %s" % (ver, len(items), out))
 
 
