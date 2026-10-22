@@ -4351,7 +4351,7 @@ function mipStatus(e){
       ?{done:true,label:"No mipmaps to add: "+d.w+" × "+d.h+" is already at the smallest level ("+mipMinLabel(min)+")"}
       :{done:true,label:"Mipmaps complete ("+have+" levels)"};
     return {need:true,label:p.zero?"Build mipmaps (the file declares zero levels)"
-                          :have>1?"Finish the mipmap chain ("+have+" of "+p.build+" levels)":"Build mipmaps"};
+                          :have>1?"Rebuild the mipmap chain ("+have+" of "+p.build+" levels now)":"Build mipmaps"};
   }
   if(e.tkey!=="tga")return {na:true,label:"No mipmaps for this file"};
   const d=dimsOfEntry(e),bpp=bppOf(e);
@@ -4600,6 +4600,9 @@ function ddsPlan(e,min){
   if(have===2&&h.w>16&&h.h>16)return want>=3&&canChain?{build:want}:{trim:1,low:true};
   return have<want?{build:want}:{done:true};
 }
+/* A DDS with levels of its own that building would replace: everything
+   below the full-size image is made again. Left alone unless asked. */
+const ddsHasOwnChain=(e,min)=>{const p=ddsPlan(e,min);return !!p.build&&!p.zero&&mipsOf(e)>1;};
 /* Keep the first `levels` levels and drop the rest, byte for byte: nothing
    is recompressed. For a chain running past where the short side reaches 1,
    whose tail the game never uses (see ddsChainMax). */
@@ -4645,6 +4648,7 @@ async function mipEntry(e,opt){
     v.setUint32(8,v.getUint32(8,true)&~0x20000,true);
     return {bytes:fixed,levels:1,was:1,fixedCount:true};
   }
+  if(!opt.overwrite&&ddsHasOwnChain(e,opt.minSize??mipMin()))return {kept:true,levels:mipsOf(e)};
   const img=await pixelsOf(e);
   if(p.trim)return {bytes:ddsTrim(entryData(e),img,p.trim),levels:p.trim,was:img.mips,trimmed:!p.low,dropped:!!p.low};
   if(p.done)return {already:true,levels:img.mips};
@@ -4675,7 +4679,7 @@ async function generateMips(list,opt){
   generateMips._busy=true;
   const prog=progressOverlay(list.length===1?"Building mipmaps":"Building mipmaps for "+list.length+" textures");
   let pre=null;
-  let ok=0,already=0,grew=0,files=0,refreshed=0,replaced=0,declined=0,trimmed=0,countFixed=0,dropped=0;
+  let ok=0,already=0,kept=0,grew=0,files=0,refreshed=0,replaced=0,declined=0,trimmed=0,countFixed=0,dropped=0;
   const failed=[],notes=[],plans=[];
   try{
     /* decide everything first, changing nothing */
@@ -4690,7 +4694,7 @@ async function generateMips(list,opt){
           continue;
         }
         const r=await mipEntry(e,opt);
-        if(r.already)already++;else plans.push({e,dds:r});
+        if(r.already)already++;else if(r.kept)kept++;else plans.push({e,dds:r});
       }catch(err){failed.push(e.name+" ("+err.message+")");}
     }
     /* then ask once about levels that no longer match their texture */
@@ -4788,10 +4792,13 @@ async function generateMips(list,opt){
       +(grew?" · "+fmtBytes(Math.abs(grew))+(grew<0?" smaller":" larger"):"")
       +(declined?" · kept "+plural(declined,"older mip file")+" as asked":"")
       +(already?" · "+already+" already had them":"")
+      +(kept?" · "+(kept===1?"1 kept its own mipmaps":kept+" kept their own mipmaps"):"")
       +(other?" · "+other+" can't take them":"")
       +(failed.length?" · "+failed.length+" couldn't":"")+" · "+saveHint(),failed.length>0&&!ok);
   }else if(failed.length)toast(failed.length===1?"No mipmaps built":"No mipmaps built · "+failed.length+" couldn't",true);
   else if(declined)toast("Kept "+plural(declined,"mip file")+(declined===1?" as it is":" as they are")+", as asked");
+  else if(kept)toast((kept+already===1?"It already has mipmaps":"All "+(kept+already)+" already have mipmaps")
+    +" · left as "+(kept+already===1?"it is":"they are")+". Tick Rebuild in the dialog to replace them.");
   else if(already)toast(already===1?"Mipmaps are in place and match the texture":"All "+already+" have their mipmaps in place");
   /* a chain that stops early is not a failure, but say where and why */
   const lines=failed.map(f=>'<li class="warn">'+esc(f)+"</li>")
@@ -4957,7 +4964,10 @@ function showMipDialog(list,mode){
                :(one?esc(list[0].name):plural(dds.length,"DDS file")+(list.length>dds.length?" and "+plural(list.length-dds.length,"TGA"):""))
                 +' · the levels go inside each DDS.')+'</p>'
     +row(convert?"Mipmaps":"Smallest level",'<select id="mpMin">'+opts+'</select>')
+    +(convert?"":note("Red Faction builds full chains for its own textures. A larger smallest level leaves textures that size or smaller with none."))
     +'<div id="mpOut" style="margin-top:10px;font:400 11px var(--mono);color:var(--text-2);min-height:15px"></div>'
+    +(convert?"":'<label id="mpOverRow" style="display:none;align-items:flex-start;gap:8px;margin-top:12px;font-size:12px;color:var(--text-2);cursor:pointer">'
+      +'<input type="checkbox" id="mpOver"'+(one?" checked":"")+' style="margin-top:2px"><span id="mpOverTxt"></span></label>')
     +(convert&&list.some(e=>e.tkey==="tga")?note("With mipmaps, a TGA's own -mip files go into the DDS where they still match it, so hand-tuned levels stay. Either way they are removed, since the game reads the DDS instead."):"")
     +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
     +'<button class="btn outline" id="mpCancel">Cancel</button>'
@@ -4977,7 +4987,18 @@ function showMipDialog(list,mode){
   window.addEventListener("keydown",onKey,true);
   ov.addEventListener("mousedown",ev=>{if(ev.target===ov)close();});
   const on=()=>!convert||$$("mpMin").value!=="0";
+  /* DDS files with a chain of their own: kept unless the box is ticked */
+  const owners=()=>convert?[]:dds.filter(e=>ddsHasOwnChain(e,+$$("mpMin").value));
+  const over=()=>!convert&&$$("mpOver").checked;
   const preview=()=>{
+    if(!convert){
+      const own=owners(),r=$$("mpOverRow");
+      r.style.display=own.length?"flex":"none";
+      $$("mpOverTxt").textContent=one
+        ?"Rebuild its mipmaps: it has "+plural(mipsOf(own[0]||sample),"level")+", and every level below the full-size image is made again"
+        :plural(own.length,"DDS file")+" already "+(own.length===1?"has":"have")+" mipmaps and "+(own.length===1?"is":"are")
+          +" left as "+(own.length===1?"it is":"they are")+". Tick to rebuild "+(own.length===1?"it too, replacing the levels it has.":"them too, replacing the levels they have.");
+    }
     const d=dimsOfEntry(sample);
     if(!d){$$("mpOut").textContent="";return;}
     const head=(one?"":sample.name+" · ")+d.w+" × "+d.h+" → ";
@@ -4988,6 +5009,7 @@ function showMipDialog(list,mode){
     if(p&&p.trim){$$("mpOut").textContent=head+(p.low?"one level: two leave none at Low texture detail"
       :"trimmed to the "+plural(p.trim,"level")+" the game uses (it has "+have+")");return;}
     if(p&&p.fixCount){$$("mpOut").textContent=head+"one level, with the zero mipmap count it declares fixed";return;}
+    if(!convert&&!over()&&ddsHasOwnChain(sample,min)){$$("mpOut").textContent=head+"kept: it has "+plural(have,"level")+" of its own";return;}
     $$("mpOut").textContent=head+(n===1?"no smaller level at this setting"
       :plural(n,"level")+", down to "+last.w+" × "+last.h)
       +(extra?"  (one more than asked: two levels would leave none at Low texture detail)":"")
@@ -5004,7 +5026,7 @@ function showMipDialog(list,mode){
     /* labels count against the smallest level, even if nothing gets built */
     if(mips&&min!==was){renderPreview();refreshLightbox();}
     if(convert)imagesToDds(list,{mips,minSize:min,smooth:true});
-    else generateMips(list,{smooth:true,minSize:min});
+    else generateMips(list,{smooth:true,minSize:min,overwrite:over()});
   }
   $$("mpCancel").addEventListener("click",close);
   $$("mpGo").addEventListener("click",go);
@@ -6685,6 +6707,12 @@ function showShortcuts(){
    Show full notes adds. The first entry must be the version in
    src/version.h; CI checks (tools/check_changelog.py). */
 const CHANGES=[
+  {v:"1.23.2",d:"2026-10-21",c:[
+    ["Build mipmaps leaves a DDS that already has mipmaps as it is, unless you tick Rebuild in the dialog.",
+     "When a chain stopped short of the smallest level you picked, every level below the full-size image used to be made again, replacing the ones already there. The dialog says how many are kept; for a single file you pick, the box starts ticked."],
+    ["The mipmap dialog notes that Red Faction builds full chains for its own textures.",
+     "A larger smallest level leaves textures that size or smaller with no mipmaps at all, so 1 × 1 is the usual choice."],
+  ]},
   {v:"1.23.1",d:"2026-10-20",c:[
     ["VPP Forge reopens at the size and place you closed it, on the same screen.",
      "Closed maximized, it opens maximized, as it does the very first time. A small window stays small, handy for dragging files in."],
