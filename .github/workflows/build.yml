@@ -38,9 +38,22 @@ jobs:
         with:
           name: VPPForge-Browser
           path: dist/VPPForge-Browser.html
+      # The release page, from this version's What's new entry and the
+      # files' SHA-256; every build writes it (and shows it in the run's
+      # summary), a tag also checks it matches version.h.
+      - name: Write the release notes
+        id: notes
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          python3 tools/release_notes.py dist/release-notes.md $TAG
+          cat dist/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+          echo "title=VPP Forge ${TAG#v}" >> "$GITHUB_OUTPUT"
       - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
+          name: ${{ steps.notes.outputs.title }}
+          body_path: dist/release-notes.md
           files: |
             dist/VPPForge-Desktop-Win64.zip
             dist/VPPForge-Browser.html

@@ -6947,7 +6947,7 @@ function showUpdate(info,manual){
         +'<p style="color:var(--text-2);font-size:12px;margin-bottom:18px">You are running version '+esc(info.current)+', the newest release.</p>'
         +'<div style="text-align:right"><button class="btn outline" id="upClose">Close</button></div>');
     }else{
-      ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:6px">Version '+esc(info.latest)+' is available</h2>'
+      ov.innerHTML=card('<h2 style="font-size:15px;margin-bottom:6px">Version '+esc(String(info.latest).replace(/^v/i,""))+' is available</h2>'
         +'<p style="color:var(--text-2);font-size:12px;margin-bottom:10px">You are running '+esc(info.current)+'. VPP Forge can install the update itself and restart.</p>'
         +'<p style="color:var(--warn);font-size:12px;margin-bottom:18px">Save any unsaved work first. The app will close and reopen, and anything unsaved will be lost.</p>'
         +'<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn outline" id="upGh">What\'s new</button><button class="btn outline" id="upLater">Later</button><button class="btn primary" id="upGo">Install and restart</button></div>');
@@ -7006,7 +7006,7 @@ function checkForUpdates(manual){
        version however often the app is opened. Not over a single opened
        asset: that window is a quick look, not a session. */
     if(state.loose||APP_SETTINGS.updateSeen===j.latest){
-      toast("Version "+j.latest+" is available · Help › Check for updates");
+      toast("Version "+String(j.latest).replace(/^v/i,"")+" is available · Help › Check for updates");
       return;
     }
     APP_SETTINGS.updateSeen=j.latest;
